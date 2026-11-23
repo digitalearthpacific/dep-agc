@@ -1,0 +1,3 @@
+# Same accepted Linux inference/accounting pins; do not resolve a newer runtime.
+pip==24.0
+-r ../requirements/linux-height-window.txt

@@ -1,0 +1,11 @@
+# Isolated CPU integration environment; inference uses the existing pinned runtime.
+-c dep-window.constraints.txt
+dep-tools @ git+https://github.com/digitalearthpacific/dep-tools.git@b4c6a6f1ef0cc2c6ede0a2af8aa3fad81324a63e
+numpy==2.0.2
+rasterio==1.4.2
+shapely==2.1.1
+pyproj==3.7.1
+psutil==7.2.2
+rio-cogeo==7.0.0
+pystac==1.14.1
+jsonschema==4.25.1

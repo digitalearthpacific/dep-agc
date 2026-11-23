@@ -1,0 +1,10 @@
+{
+  "countries": [
+    "NIU"
+  ],
+  "year": 2024,
+  "geomad_version": "0.4.0",
+  "dependency_directory": "dependencies",
+  "working_directory": "runs/annual-carbon",
+  "output_directory": "products/annual-carbon"
+}

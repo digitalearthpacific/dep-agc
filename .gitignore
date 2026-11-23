@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+dependencies/
+runs/
+products/
+*.pth
+*.tar
+*.zip
+.env

@@ -1,0 +1,30 @@
+name: Processor checks
+on:
+  workflow_dispatch:
+    inputs:
+      gis_checks:
+        description: Install the pinned adapter dependencies and run GIS checks
+        type: boolean
+        default: false
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s tests -p 'test_configuration.py'
+      - run: python -B -m unittest discover -s tests -p 'test_delivery.py'
+      - run: python -B -m unittest discover -s tests -p 'test_country_launcher.py'
+      - run: bash -n run-country.sh
+  gis:
+    if: github.event_name == 'workflow_dispatch' && inputs.gis_checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements/dep-window.txt
+      - run: python -B -m unittest discover -s tests

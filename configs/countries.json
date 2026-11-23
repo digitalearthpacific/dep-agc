@@ -1,0 +1,407 @@
+{
+  "schema": "agc-spatial-countries-v1",
+  "artifact_root": ".",
+  "countries": [
+    {
+      "country": {
+        "code": "ASM",
+        "name": "American Samoa"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/ASM-2024.json",
+        "sha256": "74cdb0f289d779255e22142328f050b4ff0f2b5ded68e82dbf4d17f1163c4c16"
+      },
+      "planning_check": {
+        "path": "planning-checks/ASM-2024.json",
+        "sha256": "4b68fd702b113ec569d630c3264605240708d40bf947adf52f0977849b75cf86"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "COK",
+        "name": "Cook Islands"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/COK-2024.json",
+        "sha256": "950e671b3c01fa6c7f0008b6b1ccdec4282c89888c5624a3e20a5d2f9b06113c"
+      },
+      "planning_check": {
+        "path": "planning-checks/COK-2024.json",
+        "sha256": "1228819530d6cfb6e4cc79027867b0509abe23f32480a9af831233bbfa422e85"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "FSM",
+        "name": "Federated States of Micronesia"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/FSM-2024.json",
+        "sha256": "25c40a64c36338ca452bca45e2a5bfcee13417f00f47cacf8150ba765a7a3e89"
+      },
+      "planning_check": {
+        "path": "planning-checks/FSM-2024.json",
+        "sha256": "eb1a2189eb963f398afacf1f21c3a5fff450bb0cbec6a6fe7d67a63d4e278bc7"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "FJI",
+        "name": "Fiji"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/FJI-2024.json",
+        "sha256": "398c668dac99d6dc7a17afa50c5e8e3fcb776d205712c6670627190b5304cdbb"
+      },
+      "planning_check": {
+        "path": "planning-checks/FJI-2024.json",
+        "sha256": "4d16642f59a60d642ca1c4063c204c2ffb21002097af516270432066c6901958"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Historical country product; this common country runner unqualified",
+      "accepted_projected": {
+        "path": "geometries/FJI.geojson",
+        "sha256": "94adccce15a4fc242aad345d179ebe96ff2dd593f6c21ef3b7a2de9971487d58",
+        "crs": "EPSG:32760"
+      },
+      "ownership": {
+        "schema": "agc-ownership-grid-v1",
+        "anchor": [
+          555800,
+          8039900
+        ],
+        "cell_size_m": 5000,
+        "crs": "EPSG:32760",
+        "owner_count": 1280,
+        "owner_order_sha256": "610bff9190aff8c11562660617d8e8fe5928341b90286ca8f6100e919e11222e",
+        "owner_bounds_sha256": "71f5add33d73c0fc3c1a76a53c88bc4236056b13c4a34cbfd59b5c2de6a6f38a",
+        "source": "accepted preparation configuration, checkpoint cores and country mapping; no inferred origin",
+        "provenance": {
+          "configuration_sha256": "3fbe1138948d399710c19584eda5a76eee3eb2836f86a3c148a0d9b0e15e05a1",
+          "checkpoint_sha256": "bb3f2f76fc8bd8fa1c5ce59bd570196f6cea5b539f2d307a31b117bf53e3b87e",
+          "owner_mapping_sha256": "3959bec0a1fdce199d2e6ec5446b6474209bef90a5918032226e2310d10de0f8",
+          "original_plan_sha256": "adbecd24c972d75b01b15b1c48dd2c7f18900602a96c1bc3daa9a600c57f4008",
+          "product_sha256": "df97a028980116c0e79a91216e856d1d86d95679bb1af2847b4fc71f8ae7f883",
+          "adapted_plan_sha256": "398c668dac99d6dc7a17afa50c5e8e3fcb776d205712c6670627190b5304cdbb",
+          "grid_template_sha256": "311cdd87bae1424e417cebddb2a25acbe40d048bf63b4452036a62f019048a0c"
+        }
+      }
+    },
+    {
+      "country": {
+        "code": "PYF",
+        "name": "French Polynesia"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/PYF-2024.json",
+        "sha256": "ea66d733db8a3c05816282969bcb4c80f929d61550dbd1c1e82d075e1cfae8ca"
+      },
+      "planning_check": {
+        "path": "planning-checks/PYF-2024.json",
+        "sha256": "87228bd75025ff336a5702f18fc3b2552e676a7989ea6f7f2e2a5868d8f58e41"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "GUM",
+        "name": "Guam"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/GUM-2024.json",
+        "sha256": "50e24fef7ff6fcc5b585e33364f6742547c42fce3e39523a72dc24c22066676e"
+      },
+      "planning_check": {
+        "path": "planning-checks/GUM-2024.json",
+        "sha256": "08807be8d2450cd895642e5c6ad14c9b6eeef906ce4029f15d644338bedd7542"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "KIR",
+        "name": "Kiribati"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/KIR-2024.json",
+        "sha256": "f9955eb7bf8e4d7efcfcca426e57c755f2954d32d9e4aaf650e9aaaa81ed43bf"
+      },
+      "planning_check": {
+        "path": "planning-checks/KIR-2024.json",
+        "sha256": "173f865f033d104df1612da77ac103c0faed5cf28cfc1f6af299773fc6896569"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "MHL",
+        "name": "Marshall Islands"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/MHL-2024.json",
+        "sha256": "76f7ae3f4a133b274c79e1033e2b90bbea99e75d1a852bb8b2a52fc319f57eeb"
+      },
+      "planning_check": {
+        "path": "planning-checks/MHL-2024.json",
+        "sha256": "e764288d5792145089d9d375e66e2a525e6676b7cc877df5383e865ee57a5018"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "NRU",
+        "name": "Nauru"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/NRU-2024.json",
+        "sha256": "c3b31a3d296a738e34b37f4fb227addc5af4d837c9286324b9f7453a8859dc5c"
+      },
+      "planning_check": {
+        "path": "planning-checks/NRU-2024.json",
+        "sha256": "f28f81f19d7481f77943fa5e0817825dfaa2e764016d858428f084b3b857fa9b"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "NCL",
+        "name": "New Caledonia"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/NCL-2024.json",
+        "sha256": "d9a300ad39e2403a3ab076515aee3cf6834ffece89b1a591b97750ab8b763be3"
+      },
+      "planning_check": {
+        "path": "planning-checks/NCL-2024.json",
+        "sha256": "a4d57ac6ae3489ce28f4350d43915161894019a743734f68c98fe596d8940605"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "NIU",
+        "name": "Niue"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/NIU-2024.json",
+        "sha256": "60f7203793b4cf6c698668b53a047f535fc4d7de7da2642d73af133e71ea0893"
+      },
+      "planning_check": {
+        "path": "planning-checks/NIU-2024.json",
+        "sha256": "27c1f0204d11326bfb1db2ead1df1965518e95c71b20789fb04ddadd62d85039"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "MNP",
+        "name": "Northern Mariana Islands"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/MNP-2024.json",
+        "sha256": "e5d07bd9f68fd63cf9523add7d066fbf2e70554b9d2836b0d5e12023926714a6"
+      },
+      "planning_check": {
+        "path": "planning-checks/MNP-2024.json",
+        "sha256": "dc35599e905af576da8aa1ac39c55907cda230de8d6f8b922aa7bcb7d10be18a"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "PLW",
+        "name": "Palau"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/PLW-2024.json",
+        "sha256": "3ca9adddb102da2e28fb11f39d52828a4e38156745ceb986520eaf71d2e1c771"
+      },
+      "planning_check": {
+        "path": "planning-checks/PLW-2024.json",
+        "sha256": "c513f2603d55e843bc7a644ffde4b61c88e52942af8d02137089cf7e65d1e98e"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "PNG",
+        "name": "Papua New Guinea"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/PNG-2024.json",
+        "sha256": "f72e85a79d711ebb7c16c1b3406316e42a856712c33dece7c31c8fc9a6372624"
+      },
+      "planning_check": {
+        "path": "planning-checks/PNG-2024.json",
+        "sha256": "8bbfb144c54ee5e9b51a6412a0b474baa12890114d96be0badc21c239cd02d28"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "PCN",
+        "name": "Pitcairn Islands"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/PCN-2024.json",
+        "sha256": "b5fbe35105f1d83873449432ac2f3db6380a18274bf100e93a3b8f0e227aec49"
+      },
+      "planning_check": {
+        "path": "planning-checks/PCN-2024.json",
+        "sha256": "3da878fa16ac678edeca09bccec7636b888233d445365c630ea6863356470591"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "WSM",
+        "name": "Samoa"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/WSM-2024.json",
+        "sha256": "e8348b252349dbdf294334ec6f12c4612cf1d70da0d7757001c9c91c6ac2b544"
+      },
+      "planning_check": {
+        "path": "planning-checks/WSM-2024.json",
+        "sha256": "5eeba53ec933950db138c214af27c4b56db2ef57114188878ec5358a780a2dbc"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Local Linux/container country execution validated; DEP unqualified"
+    },
+    {
+      "country": {
+        "code": "SLB",
+        "name": "Solomon Islands"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/SLB-2024.json",
+        "sha256": "16394acb25b1fb585e531c0a3ee057c6d4e4d4a2c33fd1a7b744bce73cdd44c8"
+      },
+      "planning_check": {
+        "path": "planning-checks/SLB-2024.json",
+        "sha256": "53907b95b776d8d8aa6a8dabd1237b4b0c4fe8a69e2392f8b8e41cc2c8ae1727"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "TKL",
+        "name": "Tokelau"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/TKL-2024.json",
+        "sha256": "8c9f7bd974209f698843815ba23ea4b4dfdb6db16fb75ba72a6c62f815ca8dab"
+      },
+      "planning_check": {
+        "path": "planning-checks/TKL-2024.json",
+        "sha256": "f6043c69964f2a48b45416ce12e14631e75f58cd145b2a9097509ca8dfcc1cc7"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "TON",
+        "name": "Tonga"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/TON-2024.json",
+        "sha256": "53450ea3b2c9f237a8f595c09601c6317cbacd71452fc409546198eb5acd822b"
+      },
+      "planning_check": {
+        "path": "planning-checks/TON-2024.json",
+        "sha256": "af8b1ee6c9509864e50e8586ea6f63fd878f0e435ebe943df765f0bf13b68ff6"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "TUV",
+        "name": "Tuvalu"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/TUV-2024.json",
+        "sha256": "d8942ec18aeccc5987a83a81b10c35af13eb414376373c4a3ca9fca4d4a388d0"
+      },
+      "planning_check": {
+        "path": "planning-checks/TUV-2024.json",
+        "sha256": "316381ce4f12aea7f39699be4f62ee467dd2476fa72b8e9008f4d3867ee68229"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "VUT",
+        "name": "Vanuatu"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/VUT-2024.json",
+        "sha256": "0bbd50f8e5e84dc09112f8b64e2156083b8f20507c9d6bc652ceb54fbd18a229"
+      },
+      "planning_check": {
+        "path": "planning-checks/VUT-2024.json",
+        "sha256": "b212eb090c6d57c2cc544bfb9ef0d7d59a28d42636a8bab9b823a01f6211945d"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    },
+    {
+      "country": {
+        "code": "WLF",
+        "name": "Wallis and Futuna"
+      },
+      "plan_status": "checked",
+      "plan": {
+        "path": "plans/WLF-2024.json",
+        "sha256": "2fc8b1935efd71c2f9c9a719e5a6b4c6027042aedb3d933c7ddcf103f9200ab4"
+      },
+      "planning_check": {
+        "path": "planning-checks/WLF-2024.json",
+        "sha256": "a28a4e1e048c1ae943cc9b20ddcd2f801cefcff52ac7c5b90697c964733d7869"
+      },
+      "execution_qualification": "Source review candidate \u2014 verification pending",
+      "reference_execution": "Not executed"
+    }
+  ]
+}
