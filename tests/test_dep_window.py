@@ -81,10 +81,30 @@ class DepWindowTests(unittest.TestCase):
                         worker_version='synthetic',identities={'code':{'fixture.py':'test-hash'}})
         task=dict(year=2024,country={'code':'XYZ','name':'Synthetic'},window='r+000-c+000',
                   grid={'id':'other-grid'},source_product='GeoMAD',source_version='0.4.0')
-        source=pystac.Item('source',None,None,None,properties={'start_datetime':'2024-01-01T00:00:00Z',
-                          'end_datetime':'2024-12-31T23:59:59Z'}).to_dict()
+        first, second, unused = ('dep_s2_geomad_075_025_2024', 'dep_s2_geomad_075_026_2024',
+                                 'dep_s2_geomad_076_025_2024')
+        stac_root = 'https://stac.digitalearthpacific.org/collections/dep_s2_geomad/items'
+        asset_root = 'https://dep-public-data.s3.us-west-2.amazonaws.com/dep_s2_geomad/0-4-0'
+        sources = []
+        for source_id in (first, second, unused):
+            source = pystac.Item(source_id, None, None, None, collection='dep_s2_geomad',
+                properties={'start_datetime': '2024-01-01T00:00:00Z', 'end_datetime': '2024-12-31T23:59:59Z',
+                            'proj:epsg': 3832, 'proj:shape': [9600, 9600],
+                            'proj:transform': [10, 0, 0, 0, -10, 0]})
+            # One used Item has no self link; the other points to the unused Item.
+            if source_id != first:
+                source.set_self_href(f'{stac_root}/{unused}')
+            for band in ['red', 'green', 'blue', 'nir', 'count']:
+                count = band == 'count'
+                source.add_asset(band, pystac.Asset(f'{asset_root}/{source_id}/{band}.tif',
+                    extra_fields={'raster:bands': [dict(scale=1 if count else .0001, offset=0,
+                                                       nodata=9999 if count else 0, data_type='uint16')]}))
+            sources.append(source.to_dict())
+        records = [{'item': first}, {'item': first}, {'item': second}]
+        expected_links = [f'{stac_root}/{first}', f'{stac_root}/{second}']
         result=dict(task=task,completion=completion,native=native,
-                    index={'source_items':[source],'support':{'path':'support.json','sha256':sha256(support)}},
+                    index={'source_items':sources,'records':records,
+                           'support':{'path':'support.json','sha256':sha256(support)}},
                     native_index_sha256='pinned-test-index',loader_receipt=receipt,worker_seconds=0)
         record=NativeCogStacWriter(self.root/'product',self.root).write(result,task_id(task))
         item_path=self.root/record['item']
@@ -94,18 +114,18 @@ class DepWindowTests(unittest.TestCase):
         LocalValidator().collection_validator().validate(collection.to_dict())
         self.assertIsNone(item.properties['datetime'])
         self.assertEqual(item.properties['start_datetime'],'2024-01-01T00:00:00Z')
+        self.assertEqual(item.properties['end_datetime'],'2024-12-31T23:59:59Z')
         self.assertEqual(len(item.assets),13)
         self.assertIn('country completeness requires separate assembly',item.properties['agc:scope'])
         self.assertEqual(item.assets['physical-area-ha'].extra_fields['raster:bands'][0]['unit'],'ha')
         for asset in item.assets.values():
             self.assertTrue(Path(asset.get_absolute_href()).is_file())
-        for link in item.get_links('derived_from'):
-            self.assertFalse(Path(link.get_href()).is_absolute())
-            self.assertTrue((item_path.parent/link.get_href()).is_file())
+        self.assertCountEqual([link.get_href() for link in item.get_links('derived_from')], expected_links)
         moved=self.root/'relocated-product'
         (self.root/'product').rename(moved)
         relocated=pystac.Collection.from_file(moved/'collection.json')
         child=next(relocated.get_items())
+        self.assertCountEqual([link.get_href() for link in child.get_links('derived_from')], expected_links)
         for asset in child.assets.values():
             self.assertTrue(Path(asset.get_absolute_href()).is_file())
 

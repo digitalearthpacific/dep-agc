@@ -2,12 +2,11 @@
 
 from datetime import datetime, timezone
 import importlib.metadata as metadata
-import os
 from pathlib import Path
 import sys
 
 from dep_tools.namers import GenericItemPath
-from dep_tools.stac_utils import StacCreator
+from dep_tools.stac_utils import StacCreator, set_derived_from
 from dep_tools.writers import LocalStacWriter, Writer
 import numpy as np
 import pystac
@@ -16,6 +15,7 @@ from rasterio.shutil import copy as rio_copy
 from rio_cogeo.cogeo import cog_validate
 import xarray as xr
 
+from spc_agb_inputs.metadata import GEOMAD_ITEMS_URL, validate_item
 from spc_agb_worker.io import read_json, sha256, write_json
 from .inputs import local_pin
 
@@ -64,6 +64,14 @@ class NativeCogStacWriter(Writer):
 
     def write(self, result, item_id):
         task, completion = result['task'], result['completion']
+        index = result['index']
+        # The index carries the country source inventory; native records identify this window's inputs.
+        source_ids = sorted({record['item'] for record in index['records']})
+        source_items = {original['id']: original for original in index['source_items']}
+        sources = []
+        for source_id in source_ids:
+            original = validate_item(source_items[source_id], task['year'], task['source_version'])
+            sources.append(pystac.Item.from_dict(original, href=f'{GEOMAD_ITEMS_URL}/{source_id}'))
         self.root.mkdir(parents=True, exist_ok=False)
         # GenericItemPath only names local files; no bucket, AWS client or publication.
         release = read_json(Path(__file__).resolve().parents[1] / 'release.json')
@@ -95,12 +103,12 @@ class NativeCogStacWriter(Writer):
                'agc:permission':'GADM permission unverified; private local engineering',
                'agc:completion_kind':completion.get('completion_kind', 'model')})
         # DEP StacCreator propagates stac_properties and reads raster/projection metadata.
+        set_derived_from(sources, data)
         item = StacCreator(names, with_raster=True).process(data,item_id)
         item.properties['datetime'] = None  # Annual interval, not a daily acquisition.
         item.properties['start_datetime'] = data.attrs['stac_properties']['start_datetime']
         item.properties['end_datetime'] = data.attrs['stac_properties']['end_datetime']
         item.remove_links('collection')  # Replace helper's default remote staging URL below.
-        item_dir = Path(item.get_self_href()).parent
         for name, asset in item.assets.items():
             asset.roles = ['visual'] if name=='RGB' else ['data']
             asset.extra_fields['agc:sha256'] = checks[name]['sha256']
@@ -113,7 +121,7 @@ class NativeCogStacWriter(Writer):
         write_json(evidence/'lineage.json',dict(
             task_identity=completion['task_identity'], identities=completion['identities'],
             ownership_grid=task.get('ownership_grid'),
-            native_source_items=[i['id'] for i in result['index']['source_items']],
+            native_source_items=source_ids,
             native_index_sha256=result['native_index_sha256'],
             processor_code={str(p.relative_to(Path(__file__).resolve().parents[1])):sha256(p)
                 for folder in ['spc_agb_dep','spc_agb_inputs']
@@ -125,21 +133,19 @@ class NativeCogStacWriter(Writer):
                 worker_version=completion['worker_version'], executed_code_sha256=completion['identities']['code'],
                 software_release=release['version'], comparison_reference='4277015',
                 numerical_equivalence='pending; not established by source inspection'),
-            metadata_flow='dep-tools StacCreator / stac_properties; standard derived_from links',
+            metadata_flow='dep-tools StacCreator / stac_properties / set_derived_from',
             provenance_API_question='DEP to confirm any additional supported lineage helper/extension'))
         import shutil
         shutil.copyfile(result['loader_receipt'],evidence/'load.json')
-        support = local_pin(self.index_root,result['index']['support'])
+        support = local_pin(self.index_root,index['support'])
         shutil.copyfile(support,evidence/'accounting-support.json')
         for name in ['completion','lineage','load','accounting-support']:
             p = evidence/(name+'.json')
             item.add_asset(name,pystac.Asset(str(p),media_type='application/json',roles=['metadata'],
                            extra_fields={'agc:sha256':sha256(p)}))
         source_dir = self.root/'sources'; source_dir.mkdir()
-        for original in result['index']['source_items']:
+        for original in index['source_items']:
             p = source_dir/(original['id']+'.json'); write_json(p,original)
-            item.add_link(pystac.Link('derived_from',os.path.relpath(p,item_dir),media_type='application/geo+json',
-                                     title=original['id']))
         collection = pystac.Collection(names.item_prefix,
             'Private local annual carbon retained window; country completeness requires separate assembly. '
             'Indicative; roots/soil/dead organic matter excluded; unavailable/unknown/water excluded; '

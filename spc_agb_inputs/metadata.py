@@ -13,6 +13,9 @@ from spc_agb_worker.observation import validate_observation
 from spc_agb_worker.io import check_file, read_json, sha256, write_json
 
 
+GEOMAD_ITEMS_URL = 'https://stac.digitalearthpacific.org/collections/dep_s2_geomad/items'
+
+
 def validate_item(item, year, version):
     validate_observation(year, version)
     p = item['properties']
@@ -70,7 +73,7 @@ def resolve_items(plan, tiles, incoming, report, guard, year, version):
         if not receipt.exists():
             if original.exists():
                 raise FileExistsError('Unreceipted metadata original retained')
-            url = 'https://stac.digitalearthpacific.org/collections/dep_s2_geomad/items/'+name
+            url = f'{GEOMAD_ITEMS_URL}/{name}'
             with requests.get(url, stream=True, timeout=(10, 30)) as response:
                 if response.status_code not in [200, 404]:
                     response.raise_for_status()
