@@ -1,7 +1,6 @@
 """Assemble checked native window outputs on one official Pacific tile."""
 
 import json
-import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,7 +13,7 @@ from pyproj import Transformer
 import rasterio
 from rasterio.windows import Window
 from shapely.geometry import box, mapping
-from shapely.ops import transform
+from shapely.ops import transform, unary_union
 import xarray as xr
 
 from spc_agb_inputs.geometry import pacific_tile_plan
@@ -25,20 +24,18 @@ from spc_agb_worker.observation import annual_interval
 from .outputs import LocalReviewPath, STATUS, UNITS, lossless_cog
 
 
-def assemble_tile(tile_id, year, footprint, workers, source_items, output):
-    """Write one local STAC Item from the finished cores that intersect the footprint."""
+TILE_UNITS = {name: unit for name, unit in UNITS.items() if name not in {'owner', 'physical-area-ha'}}
+
+
+def assemble_tile(tile_id, year, workers, source_items, output):
+    """Write one STAC Item from a complete tile or a subset of finished cores."""
     grid = pacific_tile_plan(tile_id)
     affine = Affine(*grid['tile_affine'])
     tile_shape = tuple(grid['tile_shape'])
-    if (footprint.is_empty or not footprint.is_valid or footprint.area <= 0
-            or not box(*grid['tile_bounds']).covers(footprint)):
-        raise ValueError('Expected a valid footprint within the official tile')
-    selected = {w['id']: w for w in grid['windows']
-                if footprint.intersection(box(*w['bounds'])).area > 0}
-    if set(workers) != set(selected):
-        raise ValueError('Finished window inventory differs from footprint')
+    selected = {w['id']: w for w in grid['windows'] if w['id'] in workers}
+    if not workers or set(workers) != set(selected):
+        raise ValueError('Expected finished cores of the official tile')
     sizes = {}
-    receipts = {}
     identities = set()
     for key, window in selected.items():
         worker = workers[key]
@@ -50,12 +47,11 @@ def assemble_tile(tile_id, year, footprint, workers, source_items, output):
                 declared['id'], declared['crs'], declared['retained_shape'], retained_transform(declared)) != (
                 'complete', key, year, '0.4.0', grid['id'], grid['crs'], [h, w], affine * Affine.translation(x, y)):
             raise ValueError(f'Completion does not match official tile core {key}')
-        if set(record['files']) != set(UNITS):
+        if set(record['files']) != set(TILE_UNITS):
             raise ValueError(f'Unexpected native assets for {key}')
         for name, row in record['files'].items():
             check_file(worker/'native'/f'{name}.tif', row['sha256'])
         sizes[key] = Window(x, y, w, h)
-        receipts[key] = record
         identities.add(json.dumps({k: record['identities'][k]
                                    for k in ('model', 'source_commit', 'source_sha256')}, sort_keys=True))
     if len(identities) != 1:
@@ -72,7 +68,7 @@ def assemble_tile(tile_id, year, footprint, workers, source_items, output):
     output.mkdir(parents=True, exist_ok=False)
     checks = {}
     with TemporaryDirectory(dir=output.parent) as scratch, rasterio.Env(GDAL_TIFF_INTERNAL_MASK=True):
-        for name in UNITS:
+        for name in TILE_UNITS:
             target = Path(scratch)/f'{name}.tif'
             with rasterio.open(next(iter(workers.values()))/'native'/f'{name}.tif') as first:
                 profile, colors = first.profile, first.colorinterp
@@ -87,32 +83,33 @@ def assemble_tile(tile_id, year, footprint, workers, source_items, output):
                 for key, placement in sizes.items():
                     w, h = int(placement.width), int(placement.height)
                     native = workers[key]/'native'
-                    with rasterio.open(native/'physical-area-ha.tif') as weights:
-                        owned = weights.read(1) > 0
                     with rasterio.open(native/f'{name}.tif') as src:
                         if (src.shape != (h, w) or src.transform != dst.window_transform(placement)
                                 or src.crs != dst.crs or src.dtypes != dst.dtypes
                                 or src.nodatavals != dst.nodatavals or src.colorinterp != colors):
                             raise ValueError(f'Invalid native {name} grid or encoding in {key}')
                         values, valid = src.read(), src.dataset_mask()
-                    if ((valid > 0) & ~owned).any():
-                        raise ValueError(f'Valid {name} pixels outside accounting support in {key}')
-                    values[:, ~owned] = fill
+                    if name != 'status':
+                        with rasterio.open(native/'status.tif') as status:
+                            if ((valid > 0) & (status.dataset_mask() == 0)).any():
+                                raise ValueError(f'Valid {name} pixels outside processed support in {key}')
+                    values[:, valid == 0] = fill
                     dst.write(values, window=placement)
                     dst.write_mask(valid, window=placement)
                     valid_pixels += int(np.count_nonzero(valid))
             cog = Path(names.path(tile_index, name, absolute=True))
             checks[name] = dict(lossless_cog(target, cog), path=cog.relative_to(output).as_posix(),
                                 valid_pixels=valid_pixels)
+    footprint = unary_union([box(*w['bounds']) for w in selected.values()])
     geographic = transform(Transformer.from_crs(grid['crs'], 4326, always_xy=True).transform,
                            footprint.segmentize(10))
     start, end = annual_interval(year)
-    data = xr.Dataset({name: xr.DataArray(0) for name in UNITS})
+    data = xr.Dataset({name: xr.DataArray(0) for name in TILE_UNITS})
     data.attrs['stac_properties'] = {
         'start_datetime': start, 'end_datetime': end, 'agc:tile_id': tile_id,
-        'agc:scope': 'Local pilot footprint; outside footprint is NoData',
-        'agc:window_count': len(workers), 'agc:statuses': STATUS, 'agc:source_version': '0.4.0',
-        'agc:stock_tC': math.fsum(row['summary']['stock_tC'] for row in receipts.values()),
+        'agc:scope': 'Processed tile pixels; unprocessed pixels are NoData',
+        'agc:window_count': len(workers), 'agc:source_version': '0.4.0',
+        'agc:statuses': {key: value for key, value in STATUS.items() if key != '6'},
     }
     data.attrs['stac_geometry'] = mapping(geographic)
     set_derived_from(sources, data)
@@ -128,7 +125,7 @@ def assemble_tile(tile_id, year, footprint, workers, source_items, output):
         asset.roles = ['visual'] if name == 'RGB' else ['data']
         asset.extra_fields['agc:sha256'] = checks[name]['sha256']
         for band in asset.extra_fields.get('raster:bands', []):
-            band['unit'] = UNITS[name]
+            band['unit'] = TILE_UNITS[name]
     payload = json.loads(json.dumps(item.to_dict(include_self_link=False)))
     LocalValidator().item_validator().validate(payload)
     write_json(filename, payload)

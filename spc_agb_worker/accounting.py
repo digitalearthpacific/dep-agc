@@ -1,11 +1,13 @@
 """Native ownership, masks and weighted accounting; no inference or execution state."""
 
 import numpy as np
+import rasterio
 from affine import Affine
+from rasterio.crs import CRS
 
 from .grid import owner_placement, validate_owner_ids
 from .io import local_input, sha256, write_raster
-from .policy import LAND_CLASSES
+from .policy import LAND_CLASSES, RULE
 from .science import product_masks
 
 
@@ -53,50 +55,89 @@ def totals(mask, domain, status, assessed, carbon, height_valid, unknown):
         assumed_zero_ha=float(w[mask & (status == 7)].sum()),
         unavailable_ha=float(w[mask & land & ~assessed].sum()),
         assessed_ha=float(w[mask & assessed].sum()),
-        stock_tC=float(np.dot(w[mask & assessed], carbon[mask & assessed].astype(float))),
+        stock_tC=weighted_stock(w, carbon, mask & assessed),
         height_valid_ha=float(w[mask & land & height_valid].sum()),
     )
 
 
-def account(package, task, arrays, raw_height, receiving_grid, output):
+def weighted_stock(weights, carbon, assessed):
+    return float(np.dot(weights[assessed], carbon[assessed].astype(float)))
+
+
+def pixel_products(task, arrays, raw_height, cover, processed):
     d = task["grid"]["context"]
     h, w = task["grid"]["retained_shape"]
     sl = np.s_[d:d+h, d:d+w]
-    dom = domain(package, task)
     height = raw_height[sl]
     hv = arrays["rgb_valid"][sl] & np.isfinite(height) & (height >= 0)
     source = arrays["rgb_valid"][sl] & arrays["red_valid"][sl] & arrays["nir_valid"][sl]
-    land = dom["land"]
-    unknown = (dom["weights"] > 0) & (dom["worldcover"] == 0)
+    land = processed & np.isin(cover, LAND_CLASSES)
+    unknown = processed & (cover == RULE["unknown_class"])
     assessed, status, carbon = product_masks(
         land, land & arrays["rgb_valid"][sl], source, height, hv,
         arrays["ndvi"][sl], arrays["ndvi_valid"][sl], unknown, policy=task["policy"],
     )
-    status[dom["weights"] == 0] = 6
-    grid = receiving_grid * Affine.translation(d, d)
-    owned = dom["weights"] > 0
+    status[~processed] = 6
     layers = [
-        ("RGB", arrays["rgb"][:, sl[0], sl[1]], owned & arrays["rgb_valid"][sl], None),
+        ("RGB", arrays["rgb"][:, sl[0], sl[1]], processed & arrays["rgb_valid"][sl], None),
         ("height", height, land & hv, -9999),
         ("carbon", carbon, assessed, -9999),
-        ("status", status, owned, None),
+        ("status", status, processed, None),
         ("NDVI", arrays["ndvi"][sl], land & arrays["ndvi_valid"][sl], -9999),
-        ("count", arrays["count"][sl], owned & arrays["count_valid"][sl], None),
-        ("WorldCover", dom["worldcover"], owned, None),
-        ("physical-area-ha", dom["weights"], owned, None),
-        ("owner", dom["owner"], owned, None),
+        ("count", arrays["count"][sl], processed & arrays["count_valid"][sl], None),
+        ("WorldCover", cover, processed, None),
     ]
+    return layers, (status, assessed, carbon, hv, unknown)
+
+
+def write_products(output, layers, grid, crs):
     output.mkdir(parents=True, exist_ok=False)
     files = {}
     for name, value, valid, nodata in layers:
         path = output / (name + ".tif")
-        write_raster(path, value, valid, grid, task["grid"]["crs"], nodata)
+        write_raster(path, value, valid, grid, crs, nodata)
         files[name] = dict(path=path.name, sha256=sha256(path))
+    return dict(files=files, grid=list(grid)[:6], crs=crs)
+
+
+def read_worldcover(path, task, grid):
+    with rasterio.open(path) as src:
+        if (src.driver != "GTiff" or src.count != 1 or src.dtypes != ("uint8",) or src.nodata is not None
+                or src.transform != grid or src.shape != tuple(task["grid"]["retained_shape"])
+                or src.crs != CRS.from_user_input(task["grid"]["crs"])
+                or src.files != [str(path)]):
+            raise ValueError("Expected a self-contained WorldCover raster on the retained grid")
+        cover, processed = src.read(1), src.read_masks(1) > 0
+    classes = [*LAND_CLASSES, RULE["water_class"], RULE["unknown_class"]]
+    if not processed.any() or not np.isin(cover[processed], classes).all():
+        raise ValueError("WorldCover has no processed pixels or has invalid classes")
+    return cover, processed
+
+
+def tile_products(task, arrays, raw_height, grid, worldcover, output):
+    """Write tile products from aligned WorldCover, without country geometry."""
+    layers, _ = pixel_products(task, arrays, raw_height, *worldcover)
+    return write_products(output, layers, grid, task["grid"]["crs"])
+
+
+def account(package, task, arrays, raw_height, receiving_grid, output):
+    """Preserve legacy country-window execution and its historical receipts."""
+    dom = domain(package, task)
+    owned = dom["weights"] > 0
+    layers, (status, assessed, carbon, hv, unknown) = pixel_products(
+        task, arrays, raw_height, dom["worldcover"], owned,
+    )
+    layers.extend([
+        ("physical-area-ha", dom["weights"], owned, None),
+        ("owner", dom["owner"], owned, None),
+    ])
+    d = task["grid"]["context"]
+    grid = receiving_grid * Affine.translation(d, d)
+    products = write_products(output, layers, grid, task["grid"]["crs"])
     summary = totals(owned, dom, status, assessed, carbon, hv, unknown)
     owners = {
         row["id"]: totals(dom["owner"] == row["numeric_id"], dom, status,
                           assessed, carbon, hv, unknown)
         for row in task["inputs"]["owners"]
     }
-    return dict(summary=summary, owners=owners, files=files,
-                grid=list(grid)[:6], crs=task["grid"]["crs"])
+    return dict(summary=summary, owners=owners, **products)

@@ -22,7 +22,7 @@ from spc_agb_dep.catalog import country_plan
 from spc_agb_dep.inputs import BANDS, local_pin
 from spc_agb_dep.job import resolve_job, verify_inputs
 from spc_agb_worker.accounting import domain
-from spc_agb_worker.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, validate_grid
+from spc_agb_worker.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, is_tile_task, validate_grid
 from spc_agb_worker.io import check_file, read_json, sha256, write_json
 from spc_agb_worker.prepare import prepare
 from .canonical import CANONICAL_BANDS, canonical
@@ -59,19 +59,37 @@ def copy_pin(src, dst, digest):
         check_file(dst, digest)
 
 
-def make_task(template, plan, window, blocks, vrt, package, owner_rows, order_pin, year):
+def _window_task(template, grid, window, blocks, vrt, package, year, **identity):
     task = deepcopy(template)
-    task.update(schema='spc-agb-window-v3', year=year, country=plan['country'], window=window['id'])
-    grid = plan['grid']
+    task.update(schema='spc-agb-window-v3', year=year, **identity, window=window['id'])
     task['grid'] = dict(id=grid['id'], crs=grid['crs'], affine=grid['affine'], shape=grid['shape'],
         receiving_window=window.get('receiving_window', window['global_input_window']),
         global_input_window=window['global_input_window'], canonical_global_offset=grid.get('canonical_global_offset', [0, 0]),
         context=MODEL_CONTEXT, patch=MODEL_PATCH, stride=MODEL_STRIDE,
         retained_shape=[side - 2 * MODEL_CONTEXT for side in reversed(window['global_input_window'][2:])],
         bounds=window['bounds'])
-    task['inputs'] = dict(canonical=pin(vrt, package), owner_order=order_pin,
-        bands=CANONICAL_BANDS, blocks=[pin(Path(b['file']['path']), package) for b in blocks], owners=owner_rows)
+    task['inputs'] = dict(canonical=pin(vrt, package), bands=CANONICAL_BANDS,
+        blocks=[pin(Path(b['file']['path']), package) for b in blocks])
+    return task
+
+
+def make_task(template, plan, window, blocks, vrt, package, owner_rows, order_pin, year):
+    task = _window_task(template, plan['grid'], window, blocks, vrt, package, year, country=plan['country'])
+    inputs = task['inputs']
+    task['inputs'] = dict(canonical=inputs['canonical'], owner_order=order_pin,
+                          bands=inputs['bands'], blocks=inputs['blocks'], owners=owner_rows)
     validate_grid(task)
+    return task
+
+
+def make_tile_task(template, grid, window, blocks, vrt, package, worldcover, year):
+    """Bind a Pacific window to native imagery and an independent WorldCover raster."""
+    task = _window_task(template, grid, window, blocks, vrt, package, year)
+    task.pop('country', None)
+    task['inputs']['worldcover'] = pin(worldcover, package)
+    validate_grid(task)
+    if not is_tile_task(task):
+        raise ValueError('Expected a 1,920-pixel Pacific tile task')
     return task
 
 

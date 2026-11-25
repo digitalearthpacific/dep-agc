@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import rasterio
 
-from .grid import validate_grid, validate_owner_ids
+from .grid import is_tile_task, validate_grid, validate_owner_ids
 from .policy import validate_policy
 from .observation import validate_observation
 
@@ -54,9 +54,16 @@ def validate(task, package, model, source):
     if task["source_product"] != "GeoMAD":
         raise ValueError("Unsupported annual product contract")
     inputs = task["inputs"]
+    rows = [inputs["canonical"], *inputs["blocks"]]
+    tile = is_tile_task(task)
+    if tile:
+        if "worldcover" not in inputs or {"owners", "owner_order"} & inputs.keys():
+            raise ValueError("Pacific tile tasks require pinned WorldCover and no country ownership inputs")
+        rows.append(inputs["worldcover"])
+    else:
+        rows.extend([inputs["owner_order"], *(r["file"] for r in inputs["owners"])])
     identities = {}
-    for row in [inputs["canonical"], inputs["owner_order"], *inputs["blocks"],
-                *(r["file"] for r in inputs["owners"])]:
+    for row in rows:
         path = local_input(package, row["path"])
         check_file(path, row["sha256"])
         identities[row["path"]] = row["sha256"]
@@ -71,8 +78,9 @@ def validate(task, package, model, source):
         children.add(path.relative_to(package.resolve()).as_posix())
     if children != {r["path"] for r in inputs["blocks"]}:
         raise ValueError("VRT block closure differs")
-    ids = read_json(local_input(package, inputs["owner_order"]["path"]))
-    validate_owner_ids(inputs["owners"], ids)
+    if not tile:
+        ids = read_json(local_input(package, inputs["owner_order"]["path"]))
+        validate_owner_ids(inputs["owners"], ids)
     infer = task["inference"]
     m = infer["model"]
     settings = infer["settings"]

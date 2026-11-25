@@ -14,6 +14,11 @@ DEP_CORE = 1920
 LEGACY_CORE = 2048
 
 
+def is_tile_task(task):
+    grid = task["grid"]
+    return grid.get("retained_shape") == [DEP_CORE, DEP_CORE] and grid.get("id", "").startswith("PACIFIC_GRID_10/")
+
+
 def identity(task):
     """Available task identity, also retained when validation fails."""
     if not isinstance(task, dict):
@@ -51,12 +56,12 @@ def validate_grid(task):
     if task.get("schema") != "spc-agb-window-v3":
         raise ValueError("Task schema v3 required; older tasks are historical, not implicitly migrated")
     country = task.get("country", {})
-    if any(not isinstance(country.get(k), str) or not country[k].strip()
-           for k in ("code", "name")):
-        raise ValueError("Explicit country code/name required")
     grid = task["grid"]
     if not isinstance(grid.get("id"), str) or not grid["id"].strip():
         raise ValueError("Stable grid id required")
+    if not is_tile_task(task) and any(not isinstance(country.get(k), str) or not country[k].strip()
+                                     for k in ("code", "name")):
+        raise ValueError("Explicit country code/name required")
     if not isinstance(task.get("window"), str) or not task["window"].strip():
         raise ValueError("Window identity required")
     crs = CRS.from_user_input(grid["crs"])

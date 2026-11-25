@@ -22,6 +22,7 @@
 !spc_agb_dep/assemble_tile.py
 !spc_agb_dep/catalog.py
 !spc_agb_dep/completion.py
+!spc_agb_dep/country_report.py
 !spc_agb_dep/inputs.py
 !spc_agb_dep/job.py
 !spc_agb_dep/native_checks.py

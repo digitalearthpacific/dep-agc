@@ -8,10 +8,36 @@
 including 224 pixels of context on every side. The 512-pixel model patch and
 64-pixel stride stay fixed. Whole-tile boundaries do not clip the imagery context.
 
-`assemble_tile` in `spc_agb_dep.assemble_tile` takes finished cores, the
-accounting footprint and their validated source Items. It writes one local
-tile-sized COG set and STAC Item, with NoData outside the footprint. Legacy
-country grids and saved tasks retain their existing dimensions.
+Pacific 1,920-pixel worker tasks provide `inputs.worldcover` as a package-local
+path and SHA-256. It is a one-band `uint8` GeoTIFF on the retained grid. Its
+mask identifies available WorldCover pixels, including valid class 0 (unknown).
+The worker applies the existing imagery and carbon rules without country ownership
+inputs. The carbon mask distinguishes assessed zero from water, unknown classes,
+unavailable imagery and unprocessed pixels. The status raster distinguishes these cases.
+
+`assemble_tile` in `spc_agb_dep.assemble_tile` takes finished official cores and
+their validated source Items. It writes one local tile-sized COG set and STAC Item.
+Unprocessed pixels are NoData. Legacy country tasks keep their existing contract.
+
+`report_countries(carbon_path, status_path, countries, pilot_footprint=...)` in
+`spc_agb_dep.country_report` reads tile COGs and takes a mapping from country ID
+to polygon in the tile CRS. It clips each pixel to the country and optional pilot
+footprint, measures the intersection on WGS84 and applies that ground-area weight
+to assessed carbon density. As in the baseline, the coverage denominator is the
+full in-scope country ground area, including water, unknown classes and unavailable
+or unprocessed pixels. Valid zero contributes assessed area and zero stock. Totals
+with a pilot footprint are labelled as pilot-footprint totals.
+
+### Accounting layers and report fields
+
+The seven tile STAC COG assets are `carbon`, `height`, `NDVI`, `count`,
+`WorldCover`, `status` and `RGB`. Two accounting layers from the legacy
+country-masked output moved out of the tile product.
+
+| Former COG | Where the information lives |
+|---|---|
+| `physical-area-ha` | Country reporting computes WGS84 ground-area weights in memory for each pixel's intersection with the country and optional pilot footprint. The report records aggregate hectares as `footprint_ha`, `assessed_ha` and the area by status, along with `stock_tC`. Per-pixel weights are transient. |
+| `owner` | Legacy rectangular ownership IDs remain in legacy country outputs and saved baselines. For new reports, the input polygons define country membership and their IDs key the `countries` results. A pixel split between countries contributes its respective intersection area to each. The tile's `status` mask identifies processed pixels. |
 
 ## Configuration
 
