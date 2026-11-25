@@ -72,9 +72,10 @@ def supplied_domain(package, task):
 def generated_inputs(package, task, worker, dom, no_model):
     grid=task['grid'];receiving=Affine(*grid['affine'])*Affine.translation(*grid['receiving_window'][:2])
     d=grid['context'];h,w=grid['retained_shape'];sl=np.s_[d:d+h,d:d+w]
+    receiving_shape = (h + 2*d, w + 2*d)
     with rasterio.open(package/task['inputs']['canonical']['path']) as ds:
         values=ds.read(window=Window(*grid['receiving_window']))
-    if values.shape!=(10,2496,2496):
+    if values.shape!=(10, *receiving_shape):
         raise ValueError('Complete receiving dimensions/bands differ')
     raw=values[[0,2,4]]
     rgb_valid=np.all((values[[1,3,5]]!=0)&(raw!=0),axis=0)&(values[9]!=0)&(values[8]>0)
@@ -84,12 +85,12 @@ def generated_inputs(package, task, worker, dom, no_model):
     vi_valid=(values[1]!=0)&(values[7]!=0)&(values[0]!=0)&(values[6]!=0)&(np.abs(denominator)>epsilon)
     vi=np.full(red.shape,-9999,np.float32);vi[vi_valid]=((nir[vi_valid]-red[vi_valid])/denominator[vi_valid]).astype(np.float32)
     with rasterio.open(worker/'prepared/tci-input.tif') as ds:
-        if (ds.shape!=(2496,2496) or ds.transform!=receiving or ds.crs!=rasterio.crs.CRS.from_user_input(grid['crs'])
+        if (ds.shape!=receiving_shape or ds.transform!=receiving or ds.crs!=rasterio.crs.CRS.from_user_input(grid['crs'])
                 or not np.array_equal(ds.read(),rgb) or not np.array_equal(ds.dataset_mask()>0,rgb_valid)):
             raise ValueError('Independent receiving RGB encoding/validity differs')
     completion=json.loads((worker/'completion.json').read_text())
     with rasterio.open(worker/completion['height']['raw']) as ds:
-        if ds.shape!=(2496,2496) or ds.transform!=receiving or ds.crs!=rasterio.crs.CRS.from_user_input(grid['crs']) or ds.dtypes!=('float32',):
+        if ds.shape!=receiving_shape or ds.transform!=receiving or ds.crs!=rasterio.crs.CRS.from_user_input(grid['crs']) or ds.dtypes!=('float32',):
             raise ValueError('Independent full-context height grid differs')
         height=ds.read(1)
         if no_model:

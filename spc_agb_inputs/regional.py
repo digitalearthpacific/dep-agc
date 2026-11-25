@@ -84,11 +84,12 @@ def check_plan(plan, geographic, guard, accepted_projected=None):
     for w in windows:
         guard()
         offset = grid.get('canonical_global_offset', [0, 0])
-        receiving = w.get('receiving_window', [w['global_input_window'][i]+offset[i]
-                            for i in range(2)]+[2496, 2496])
+        global_window = w['global_input_window']
+        receiving = w.get('receiving_window', [global_window[i]+offset[i] for i in range(2)]+global_window[2:])
         contract = dict(grid, receiving_window=receiving,
                         global_input_window=w['global_input_window'], bounds=w['bounds'],
-                        canonical_global_offset=offset, retained_shape=[2048, 2048])
+                        canonical_global_offset=offset,
+                        retained_shape=[side - 2 * grid['context'] for side in reversed(receiving[2:])])
         validate_grid(dict(schema='spc-agb-window-v3', country=plan['country'],
                            window=w['id'], grid=contract))
         rectangles.append(box(*w['bounds']))

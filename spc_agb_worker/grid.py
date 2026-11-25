@@ -7,6 +7,13 @@ from rasterio.crs import CRS
 from rasterio.transform import array_bounds
 
 
+MODEL_PATCH = 512
+MODEL_STRIDE = 64
+MODEL_CONTEXT = 224
+DEP_CORE = 1920
+LEGACY_CORE = 2048
+
+
 def identity(task):
     """Available task identity, also retained when validation fails."""
     if not isinstance(task, dict):
@@ -64,17 +71,19 @@ def validate_grid(task):
     global_window = integer_vector(grid["global_input_window"], 4, "Global window")
     offset = integer_vector(grid["canonical_global_offset"], 2, "Canonical/global offset")
     integer_vector(grid["retained_shape"], 2, "Retained shape")
-    if (grid["patch"], grid["stride"], grid["context"], grid["retained_shape"]) != (
-        512, 64, 224, [2048, 2048]
-    ):
+    if (grid["patch"], grid["stride"], grid["context"]) != (MODEL_PATCH, MODEL_STRIDE, MODEL_CONTEXT):
         raise ValueError("Accepted patch/context contract required")
-    if receiving[2:] != [2496, 2496] or global_window[2:] != [2496, 2496]:
+    core = grid["retained_shape"]
+    if core != [LEGACY_CORE, LEGACY_CORE] and (crs.to_epsg() != 3832 or core != [DEP_CORE, DEP_CORE]):
+        raise ValueError("Unsupported retained window shape")
+    input_size = [side + 2 * MODEL_CONTEXT for side in reversed(core)]
+    if receiving[2:] != input_size or global_window[2:] != input_size:
         raise ValueError("Full receiving window required")
     if (min(shape) <= 0 or min(receiving[:2]) < 0
             or receiving[0] + receiving[2] > shape[1]
             or receiving[1] + receiving[3] > shape[0]):
         raise ValueError("Receiving window exceeds canonical grid")
-    if any(v % 64 for v in global_window[:2]):
+    if any(v % MODEL_STRIDE for v in global_window[:2]):
         raise ValueError("Global patch phase differs")
     if [receiving[i] - offset[i] for i in range(2)] != global_window[:2]:
         raise ValueError("Canonical/global offsets disagree")

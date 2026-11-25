@@ -1,5 +1,18 @@
 # Reference
 
+## Pacific tile windows
+
+`pacific_tile_plan(tile_id)` in `spc_agb_inputs.geometry` plans the full
+9,600 × 9,600 `PACIFIC_GRID_10` tile in EPSG:3832. The 25 retained
+1,920 × 1,920 cores cover it once. Each receives 2,368 × 2,368 source pixels,
+including 224 pixels of context on every side. The 512-pixel model patch and
+64-pixel stride stay fixed. Whole-tile boundaries do not clip the imagery context.
+
+`assemble_tile` in `spc_agb_dep.assemble_tile` takes finished cores, the
+accounting footprint and their validated source Items. It writes one local
+tile-sized COG set and STAC Item, with NoData outside the footprint. Legacy
+country grids and saved tasks retain their existing dimensions.
+
 ## Configuration
 
 [run.json](../run.json) is the normal six-field configuration. Relative paths

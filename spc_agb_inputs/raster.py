@@ -20,21 +20,29 @@ from rasterio.windows import Window, from_bounds
 from shapely.geometry import box
 from shapely.ops import unary_union
 
+from spc_agb_worker.grid import MODEL_PATCH
 from spc_agb_worker.io import sha256
 from spc_agb_worker.io import check_file, read_json, write_json
 
 from .canonical import BANDS, CANONICAL_BANDS, pin, canonical_vrt, canonical
 
 
+def receiving_source_bounds(plan, window):
+    """Preserve legacy padding; DEP tiles require only the real model context."""
+    grid = Affine(*plan["grid"]["affine"])
+    x, y, w, h = window["global_input_window"]
+    if 'tile_id' not in plan['grid']:
+        w = math.ceil(w / MODEL_PATCH) * MODEL_PATCH
+        h = math.ceil(h / MODEL_PATCH) * MODEL_PATCH
+    return rasterio.windows.bounds(Window(x, y, w, h), grid)
+
+
 def native_blocks(plan, folder, route, guard, *, resume=False):
     """Same disjoint <=1024px native blocks/validity as accepted sparse producer."""
     from spc_agb_dep.inputs import native_mosaic as mosaic_vrt
 
-    grid = Affine(*plan["grid"]["affine"])
-    x, y, w, h = plan["selected"]["global_input_window"]
-    padded = Window(x, y, math.ceil(w/512)*512, math.ceil(h/512)*512)
     bounds = transform_bounds(plan["grid"]["crs"], 3832,
-                              *rasterio.windows.bounds(padded, grid), densify_pts=101)
+                              *receiving_source_bounds(plan, plan["selected"]), densify_pts=101)
     records = []
     for item in plan["source_items"]:
         intersection = box(*item["properties"]["proj:bbox"]).intersection(box(*bounds))
@@ -121,6 +129,8 @@ def native_blocks(plan, folder, route, guard, *, resume=False):
         col, r = map(int, row['id'].split('_')[3:5])
         missing.append(box(-3000000+col*96000, -4000000+r*96000,
                            -3000000+(col+1)*96000, -4000000+(r+1)*96000))
+    if 'tile_id' in plan['grid'] and coverage.area > 1:
+        raise ValueError('DEP tile window is missing real GeoMAD context')
     if coverage.area > 1 and (not missing or coverage.difference(unary_union(missing)).area > 1):
         raise ValueError("Native roster misses padded context without an explicit missing-source record")
     vrts = {}

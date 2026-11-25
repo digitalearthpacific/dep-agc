@@ -12,10 +12,12 @@ from shapely.geometry import mapping
 from shapely.ops import transform, unary_union
 from pyproj import Transformer
 
-from spc_agb_inputs.geometry import grid_plan, owners, projected_boundary
+from spc_agb_inputs.geometry import grid_plan, owners, pacific_tile_plan, projected_boundary, provider_tiles
+from spc_agb_inputs.raster import receiving_source_bounds
 from spc_agb_inputs.regional import new_plan, check_plan, owner_extent, owner_capacity, accepted_geometry, run
 from spc_agb_dep.catalog import country_plan, listed_tasks, resolve_window
 from spc_agb_worker.io import sha256
+from spc_agb_worker.grid import validate_grid
 
 RULE = dict(crs='EPSG:3832', anchor=[0, 0], resolution=10, patch=512,
             stride=64, context=224, retained_chunk=2048)
@@ -23,6 +25,36 @@ COUNTRY = dict(code='TST', name='Synthetic portability fixture')
 
 
 class PlanningTests(unittest.TestCase):
+    def test_official_tile_partition_and_edge_context(self):
+        grid = pacific_tile_plan('075_025')
+        tile = box(4200000, -1600000, 4296000, -1504000)
+        cores = [box(*w['bounds']) for w in grid['windows']]
+        self.assertEqual(len(cores), 25)
+        self.assertTrue(unary_union(cores).equals(tile))
+        self.assertEqual(sum(c.area for c in cores), tile.area)
+        for w, core in zip(grid['windows'], cores):
+            self.assertEqual(w['retained_shape'], [1920, 1920])
+            self.assertEqual(core.area, 19200**2)
+            self.assertEqual(w['global_input_window'][2:], [2368, 2368])
+            self.assertEqual(tuple(w['input_bounds']), receiving_source_bounds({'grid': grid}, w))
+            self.assertTrue(box(*w['input_bounds']).equals(core.buffer(2240, join_style='mitre')))
+        self.assertEqual(set(provider_tiles(None, box(*grid['windows'][0]['input_bounds']))),
+                         {(74, 25), (74, 26), (75, 25), (75, 26)})
+        self.assertEqual(set(provider_tiles(None, box(*grid['windows'][-1]['input_bounds']))),
+                         {(75, 24), (75, 25), (76, 24), (76, 25)})
+
+    def test_worker_accepts_equal_edge_core_and_rejects_wrong_context(self):
+        grid = pacific_tile_plan('075_025')
+        w = grid['windows'][-1]
+        g = dict(grid, receiving_window=w['global_input_window'][:],
+                 global_input_window=w['global_input_window'][:], canonical_global_offset=[0, 0],
+                 retained_shape=w['retained_shape'], bounds=w['bounds'])
+        task = dict(schema='spc-agb-window-v3', country=COUNTRY, window=w['id'], grid=g)
+        self.assertEqual(validate_grid(task).to_epsg(), 3832)
+        task['grid']['receiving_window'][2] -= 1
+        with self.assertRaisesRegex(ValueError, 'Full receiving'):
+            validate_grid(task)
+
     def test_sparse_candidates_and_extent_proxy_match_existing_planner(self):
         country = MultiPolygon([box(11, 17, 11000, 12000), box(51001, 75001, 51003, 75003)])
         rows, _ = owners(country, [0, 0])

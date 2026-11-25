@@ -19,6 +19,7 @@
 !requirements/linux-height-window.txt
 !spc_agb_dep/__init__.py
 !spc_agb_dep/assemble_country.py
+!spc_agb_dep/assemble_tile.py
 !spc_agb_dep/catalog.py
 !spc_agb_dep/completion.py
 !spc_agb_dep/inputs.py

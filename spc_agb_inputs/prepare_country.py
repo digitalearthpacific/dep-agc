@@ -7,7 +7,6 @@ import argparse
 from copy import deepcopy
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import shutil
@@ -18,13 +17,12 @@ import rasterio
 from shapely.geometry import box, mapping, shape
 from shapely.ops import transform
 from pyproj import Transformer
-from affine import Affine
 
 from spc_agb_dep.catalog import country_plan
 from spc_agb_dep.inputs import BANDS, local_pin
 from spc_agb_dep.job import resolve_job, verify_inputs
 from spc_agb_worker.accounting import domain
-from spc_agb_worker.grid import validate_grid
+from spc_agb_worker.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, validate_grid
 from spc_agb_worker.io import check_file, read_json, sha256, write_json
 from spc_agb_worker.prepare import prepare
 from .canonical import CANONICAL_BANDS, canonical
@@ -32,7 +30,7 @@ from .dependencies import ownership_metadata, owner_fingerprints, dependency_fil
 from .geometry import country_boundary, preparation_geometry, owners, provider_tiles, worldcover_tiles
 from spc_agb_worker.observation import validate_observation
 from .metadata import resolve_items
-from .raster import native_blocks, static_owner
+from .raster import native_blocks, receiving_source_bounds, static_owner
 from .state import atomic, writer_lock
 from .transport import RangeArchive, gateway, reader_options
 
@@ -68,7 +66,9 @@ def make_task(template, plan, window, blocks, vrt, package, owner_rows, order_pi
     task['grid'] = dict(id=grid['id'], crs=grid['crs'], affine=grid['affine'], shape=grid['shape'],
         receiving_window=window.get('receiving_window', window['global_input_window']),
         global_input_window=window['global_input_window'], canonical_global_offset=grid.get('canonical_global_offset', [0, 0]),
-        context=224, patch=512, stride=64, retained_shape=[2048, 2048], bounds=window['bounds'])
+        context=MODEL_CONTEXT, patch=MODEL_PATCH, stride=MODEL_STRIDE,
+        retained_shape=[side - 2 * MODEL_CONTEXT for side in reversed(window['global_input_window'][2:])],
+        bounds=window['bounds'])
     task['inputs'] = dict(canonical=pin(vrt, package), owner_order=order_pin,
         bands=CANONICAL_BANDS, blocks=[pin(Path(b['file']['path']), package) for b in blocks], owners=owner_rows)
     validate_grid(task)
@@ -190,12 +190,12 @@ def prepare_country(catalog, code, year, config_file, output, archive):
             country.segmentize(240)) if approved else None
         tiles = set(provider_tiles(geographic, provider_geometry))
         project = Transformer.from_crs(plan['grid']['crs'],4326,always_xy=True).transform
-        affine = Affine(*plan['grid']['affine'])
         for w in selection['windows']:
-            x,y,width,height = w['global_input_window']
-            # Native preparation includes the full padded canonical block support.
-            bounds = rasterio.windows.bounds(rasterio.windows.Window(x,y,math.ceil(width/512)*512,math.ceil(height/512)*512),affine)
-            tiles.update(provider_tiles(transform(project,box(*bounds).segmentize(240))))
+            bounds = box(*receiving_source_bounds(plan, w))
+            if 'tile_id' in plan['grid']:
+                tiles.update(provider_tiles(None, bounds))
+            else:
+                tiles.update(provider_tiles(transform(project,bounds.segmentize(240))))
         items, missing = resolve_items(plan, sorted(tiles), archive/'metadata', output/'metadata', guard, year, config['source_version'])
         if not items:
             raise ValueError(f'GeoMAD {year} v{config["source_version"]} unavailable: no resolved Items; no invented observation')
