@@ -11,17 +11,17 @@ from affine import Affine
 import numpy as np
 from odc.geo.geobox import GeoBox
 import rasterio
-from shapely.geometry import box
 
 from carbon.io import read_json, sha256, write_json, write_raster
 from tasks.__main__ import main
-from tasks.inputs.geometry import pacific_tile_plan, provider_tiles
+from tasks.inputs.geometry import pacific_tile_plan
 from tasks.inputs.live_tile import align_worldcover
 from tasks.inputs.metadata import validate_item
 from tasks.tile import run_tile
 
 
 TILE, YEAR = '075_025', 2024
+NORTHWEST_SOURCES = [(74, 25), (74, 26), (75, 25), (75, 26)]
 
 
 def source_item(col, row):
@@ -44,14 +44,16 @@ class TileCommandTests(unittest.TestCase):
         plan = pacific_tile_plan(TILE)
         edge = plan['windows'][0]
         plan['windows'] = [edge]
-        items = [source_item(*pair) for pair in provider_tiles(None, box(*edge['input_bounds']))]
+        items = [source_item(*pair) for pair in NORTHWEST_SOURCES]
         with TemporaryDirectory() as temp:
             root = Path(temp)
             cover = object()
+            blocks, vrt = [], root/'canonical.vrt'
             with patch('tasks.tile.pacific_tile_plan', return_value=plan), \
                  patch('tasks.tile.discover_geomad', return_value=items) as discover, \
                  patch('tasks.tile.live_tile_sources', return_value=contextlib.nullcontext(cover)) as sources, \
-                 patch('tasks.tile.prepare_discovered_core', return_value={}) as prepare, \
+                 patch('tasks.tile.load_geomad_window', return_value=(blocks, vrt)) as load, \
+                 patch('tasks.tile.write_core_task') as prepare, \
                  patch('tasks.tile.CarbonProcessor') as processor:
                 processor.return_value.process.side_effect = AssertionError('stop before inference')
                 with self.assertRaisesRegex(AssertionError, 'stop before inference'):
@@ -59,9 +61,10 @@ class TileCommandTests(unittest.TestCase):
                           '--model', str(root/'model'), '--source', str(root/'source')])
             discover.assert_called_once_with(plan, YEAR)
             self.assertEqual(sources.call_args.args[1], sorted(items, key=lambda item: item['id']))
-            self.assertEqual(prepare.call_args.args[1:], (edge, items))
-            self.assertIs(prepare.call_args.kwargs['worldcover'], cover)
-            processor.return_value.process.assert_called_once()
+            package = root/'tile-work/windows'/edge['id']/'package'
+            load.assert_called_once_with(plan, edge, items, package)
+            self.assertEqual(prepare.call_args.args[1:5], (edge, blocks, vrt, cover))
+            processor.return_value.process.assert_called_once_with(package)
 
     def test_worldcover_unknown_class_and_missing_extent_have_distinct_masks(self):
         affine = Affine(.001, 0, -172, 0, -.001, -13)
@@ -82,7 +85,7 @@ class TileCommandTests(unittest.TestCase):
         plan = pacific_tile_plan(TILE)
         edge = plan['windows'][0]
         plan['windows'] = [edge]
-        required = [source_item(*pair) for pair in provider_tiles(None, box(*edge['input_bounds']))]
+        required = [source_item(*pair) for pair in NORTHWEST_SOURCES]
         self.assertEqual(len(required), 4)
         extra = source_item(77, 25)
         with TemporaryDirectory() as temp:
@@ -101,22 +104,22 @@ class TileCommandTests(unittest.TestCase):
             write_json(inputs, dict(schema='agc-tile-inputs-v1', tile=TILE, year=YEAR,
                                     geomad=geomad, worldcover=asset_pin))
 
-            def prepare(grid, window, items, route, worldcover, profile, year, package):
-                self.assertEqual(items, required)
+            def prepare(grid, window, blocks, vrt, worldcover, profile, year, package):
                 package.mkdir(parents=True)
                 write_json(package/'task.json', {})
-                return {}
 
-            def process(loaded):
-                worker = loaded['package'].parent/'worker'
+            def process(package):
+                worker = package.parent/'worker'
                 (worker/'prepared').mkdir(parents=True)
                 (worker/'prepared/tci-input.tif').write_bytes(b'RGB fixture')
                 (worker/'height.tif').write_bytes(b'height fixture')
-                return {'completion': {'height': {'raw': 'height.tif'}}}
+                return {'height': {'raw': 'height.tif'}}
 
             with patch('tasks.tile.pacific_tile_plan', return_value=plan), \
                  patch('tasks.tile.validate_item', wraps=validate_item) as check_item, \
-                 patch('tasks.tile.read_worldcover'), patch('tasks.tile.prepare_core', side_effect=prepare), \
+                 patch('tasks.tile.read_worldcover'), \
+                 patch('tasks.tile.load_local_geomad_window', return_value=([], asset)) as load, \
+                 patch('tasks.tile.write_core_task', side_effect=prepare), \
                  patch('tasks.tile.CarbonProcessor') as processor, \
                  patch('tasks.tile.assemble_tile', return_value={'item': TILE+'.stac-item.json'}) as assemble, \
                  contextlib.redirect_stdout(io.StringIO()) as stdout:
@@ -124,6 +127,7 @@ class TileCommandTests(unittest.TestCase):
                 self.assertEqual(main(['tile', TILE, str(YEAR), '--inputs', str(inputs), '--output', str(output),
                                        '--model', str(root/'model'), '--source', str(root/'source')]), 0)
             self.assertEqual([call.args[0] for call in check_item.call_args_list], [*required, extra])
+            self.assertEqual(load.call_args.args[2], required)
             processor.return_value.process.assert_called_once()
             self.assertEqual(stdout.getvalue().strip(), str(output/(TILE+'.stac-item.json')))
             args = assemble.call_args.args
@@ -136,7 +140,7 @@ class TileCommandTests(unittest.TestCase):
 
     def test_replay_dispatches_saved_height_inputs_without_inference(self):
         edge = pacific_tile_plan(TILE)['windows'][0]
-        items = [source_item(*pair) for pair in provider_tiles(None, box(*edge['input_bounds']))]
+        items = [source_item(*pair) for pair in NORTHWEST_SOURCES]
         saved = dict(source_ids=[item['id'] for item in items], raw_height={'path': 'saved/height.tif'})
         with TemporaryDirectory() as temp:
             root = Path(temp)

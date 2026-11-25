@@ -36,10 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
  && /opt/adapter-venv/bin/python -m pip check
 
 WORKDIR /opt/processor
-COPY carbon/*.py carbon/origins.json ./carbon/
+COPY carbon/*.py ./carbon/
 COPY tasks/*.py ./tasks/
 COPY tasks/inputs/*.py ./tasks/inputs/
-COPY configs/scientific-profile.json configs/countries.json configs/regional-planning.json ./configs/
+COPY configs/scientific-profile.json ./configs/
 COPY release.json ./release.json
 ENV SPC_WORKER_PYTHON=/opt/venv/bin/python
 USER 65534:65534

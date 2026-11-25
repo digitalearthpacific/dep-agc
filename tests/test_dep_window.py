@@ -1,5 +1,5 @@
 """Small portability/mask/metadata fixtures; no model import or dispatch."""
-import json
+from unittest.mock import patch
 import os
 from pathlib import Path
 import tempfile
@@ -12,9 +12,10 @@ from pystac.validation.local_validator import LocalValidator
 import rasterio
 
 from tasks.loading import local_pin, native_mosaic
-from tasks.outputs import lossless_cog, NativeCogStacWriter
+from tasks.assemble_tile import assemble_tile
+from tasks.inputs.metadata import validate_item
+from tasks.outputs import UNITS, lossless_cog
 from tasks.processing import CarbonProcessor
-from tasks.run_task import task_id
 from carbon.io import sha256, write_json
 
 
@@ -26,16 +27,12 @@ class DepWindowTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_cache_escape_hash_and_task_identity(self):
+    def test_cache_escape_and_hash(self):
         with self.assertRaises(ValueError):
             local_pin(self.root,dict(path='../outside',sha256='bad'))
         p=self.root/'input';p.write_bytes(b'original')
         with self.assertRaises(ValueError):
             local_pin(self.root,dict(path='input',sha256='bad'))
-        self.assertEqual(task_id(dict(country={'code':'XYZ'},grid={'id':'other-grid'},window='r+000-c+000',year=2024,source_version='0.4.0')),
-                         ('XYZ','other-grid','r+000-c+000','2024'))
-        with self.assertRaises(ValueError):
-            task_id(dict(country={'code':'../XYZ'},grid={'id':'grid'},window='window',year=2024,source_version='0.4.0'))
 
     def test_overlap_rejected_and_timeout_cannot_expand(self):
         rec={'bands':{'red':dict(grid=[10,0,0,0,-10,20],shape=[2,2],crs=32702,
@@ -45,14 +42,14 @@ class DepWindowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             CarbonProcessor(Path('python'),self.root,self.root,self.root,self.root,0)
 
-    def make_raster(self, path, dtype='float32', rgb=False):
+    def make_raster(self, path, dtype='float32', rgb=False, crs='EPSG:32702', grid=Affine(10,0,400000,0,-10,8470000)):
         values=np.arange(64*64,dtype=dtype).reshape(64,64)
         values[0,:4]=[0,1,2,3]
         mask=np.ones((64,64),bool);mask[1,0]=False
         count=3 if rgb else 1
         with rasterio.Env(GDAL_TIFF_INTERNAL_MASK=True),rasterio.open(path,'w',driver='GTiff',
-                width=64,height=64,count=count,dtype=dtype,crs='EPSG:32702',
-                transform=Affine(10,0,400000,0,-10,8470000),nodata=None) as ds:
+                width=64,height=64,count=count,dtype=dtype,crs=crs,
+                transform=grid,nodata=None) as ds:
             ds.write(np.stack([values]*count));ds.write_mask(mask.astype('uint8')*255)
         return values,mask
 
@@ -68,19 +65,29 @@ class DepWindowTests(unittest.TestCase):
             self.assertEqual(ds.overviews(1),[2,4,8])
         with self.assertRaises(FileExistsError):lossless_cog(source,target)
 
-    def test_stac_local_annual_interval_support_and_lineage(self):
-        native=self.root/'native';native.mkdir()
-        for name in ['carbon','height','physical-area-ha','status','owner','WorldCover','count','NDVI','RGB']:
-            dtype={'RGB':'uint8','status':'uint8','WorldCover':'uint8','owner':'uint16',
-                   'count':'uint16','physical-area-ha':'float64'}.get(name,'float32')
-            self.make_raster(native/(name+'.tif'),dtype,name=='RGB')
-        support=self.root/'support.json';write_json(support,{'crs':'EPSG:32702','owners':[]})
-        receipt=self.root/'load.json';write_json(receipt,{'checked':True})
-        completion=dict(files={p.stem:{} for p in native.iterdir()},summary={'stock_tC':1.,'assessed_ha':2.},
-                        task_identity={'country':{'code':'XYZ'},'grid_id':'other'},
-                        worker_version='synthetic',identities={'code':{'fixture.py':'test-hash'}})
-        task=dict(year=2024,country={'code':'XYZ','name':'Synthetic'},window='r+000-c+000',
-                  grid={'id':'other-grid'},source_product='GeoMAD',source_version='0.4.0')
+    def test_stac_local_annual_interval_assets_and_lineage(self):
+        native = self.root/'worker/native'
+        native.mkdir(parents=True)
+        crs = 'EPSG:3832'
+        affine = Affine(10, 0, 4200000, 0, -10, -1504000)
+        key, tile_id = 'r00c00', '075_025'
+        grid_id = f'PACIFIC_GRID_10/{tile_id}'
+        bounds = [4200000, -1504640, 4200640, -1504000]
+        grid = dict(id=grid_id, crs=crs, tile_affine=list(affine)[:6], tile_shape=[64, 64],
+                    windows=[dict(id=key, retained_shape=[64, 64], global_input_window=[0, 0, 512, 512],
+                                  bounds=bounds)])
+        files = {}
+        for name in UNITS:
+            dtype = {'RGB': 'uint8', 'status': 'uint8', 'WorldCover': 'uint8', 'count': 'uint16'}.get(name, 'float32')
+            path = native/f'{name}.tif'
+            self.make_raster(path, dtype, name == 'RGB', crs, affine)
+            files[name] = {'sha256': sha256(path)}
+        declared = dict(id=grid_id, crs=crs, retained_shape=[64, 64], context=224,
+                        affine=list(affine * Affine.translation(-224, -224))[:6],
+                        receiving_window=[0, 0, 512, 512])
+        write_json(native.parent/'completion.json', dict(status='complete', window=key, year=2024,
+                   source_version='0.4.0', declared_grid=declared, files=files,
+                   identities=dict(model='fixture', source_commit='fixture', source_sha256='fixture')))
         first, second, unused = ('dep_s2_geomad_075_025_2024', 'dep_s2_geomad_075_026_2024',
                                  'dep_s2_geomad_076_025_2024')
         stac_root = 'https://stac.digitalearthpacific.org/collections/dep_s2_geomad/items'
@@ -100,43 +107,38 @@ class DepWindowTests(unittest.TestCase):
                     extra_fields={'raster:bands': [dict(scale=1 if count else .0001, offset=0,
                                                        nodata=9999 if count else 0, data_type='uint16')]}))
             sources.append(source.to_dict())
-        records = [{'item': first}, {'item': first}, {'item': second}]
         expected_links = [f'{stac_root}/{first}', f'{stac_root}/{second}']
-        result=dict(task=task,completion=completion,native=native,
-                    index={'source_items':sources,'records':records,
-                           'support':{'path':'support.json','sha256':sha256(support)}},
-                    native_index_sha256='pinned-test-index',loader_receipt=receipt,worker_seconds=0)
-        record=NativeCogStacWriter(self.root/'product',self.root).write(result,task_id(task))
-        item_path=self.root/record['item']
-        item=pystac.Item.from_file(item_path)
+        validated = [validate_item(source, 2024, '0.4.0') for source in sources]
+        output = self.root/'product'
+        with patch('tasks.assemble_tile.pacific_tile_plan', return_value=grid):
+            with self.assertRaisesRegex(ValueError, 'distinct'):
+                assemble_tile(tile_id, 2024, {key: native.parent}, [validated[0]] * 2, output)
+            record = assemble_tile(tile_id, 2024, {key: native.parent}, validated[:2], output)
+
+        item = pystac.Item.from_file(output/record['item'])
         LocalValidator().item_validator().validate(item.to_dict())
-        collection=pystac.Collection.from_file(self.root/record['collection'])
-        LocalValidator().collection_validator().validate(collection.to_dict())
+        self.assertEqual(item.id, tile_id)
         self.assertIsNone(item.properties['datetime'])
-        self.assertEqual(item.properties['start_datetime'],'2024-01-01T00:00:00Z')
-        self.assertEqual(item.properties['end_datetime'],'2024-12-31T23:59:59Z')
-        self.assertEqual(len(item.assets),13)
-        self.assertIn('country completeness requires separate assembly',item.properties['agc:scope'])
-        self.assertEqual(item.assets['physical-area-ha'].extra_fields['raster:bands'][0]['unit'],'ha')
-        for asset in item.assets.values():
-            self.assertTrue(Path(asset.get_absolute_href()).is_file())
-        self.assertCountEqual([link.get_href() for link in item.get_links('derived_from')], expected_links)
-        moved=self.root/'relocated-product'
-        (self.root/'product').rename(moved)
-        relocated=pystac.Collection.from_file(moved/'collection.json')
-        child=next(relocated.get_items())
-        self.assertCountEqual([link.get_href() for link in child.get_links('derived_from')], expected_links)
-        for asset in child.assets.values():
+        self.assertEqual(item.properties['start_datetime'], '2024-01-01T00:00:00Z')
+        self.assertEqual(item.properties['end_datetime'], '2024-12-31T23:59:59Z')
+        self.assertEqual(set(item.assets), set(UNITS))
+        self.assertEqual(item.assets['carbon'].extra_fields['raster:bands'][0]['unit'], 't C/ha')
+        moved = self.root/'relocated-product'
+        output.rename(moved)
+        relocated = pystac.Item.from_file(moved/record['item'])
+        for loaded in (item, relocated):
+            self.assertEqual([link.get_href() for link in loaded.get_links('derived_from')], expected_links)
+        for asset in relocated.assets.values():
             self.assertTrue(Path(asset.get_absolute_href()).is_file())
 
     def test_status_categories_survive_cog(self):
         source=self.root/'status.tif';self.make_raster(source,'uint8')
         with rasterio.open(source,'r+') as ds:
-            data=ds.read(1);data[0,:6]=[0,1,4,5,6,7];ds.write(data,1)
+            data=ds.read(1);data[0,:5]=[0,1,4,5,7];ds.write(data,1)
         target=self.root/'status-cog.tif';lossless_cog(source,target)
         with rasterio.open(target) as ds:
-            self.assertEqual(ds.read(1)[0,:6].tolist(),[0,1,4,5,6,7])
-            self.assertTrue((ds.read_masks(1)[0,:6]==255).all())
+            self.assertEqual(ds.read(1)[0,:5].tolist(),[0,1,4,5,7])
+            self.assertTrue((ds.read_masks(1)[0,:5]==255).all())
 
 
 if __name__=='__main__':unittest.main()

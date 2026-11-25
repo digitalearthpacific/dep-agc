@@ -9,8 +9,8 @@ import numpy as np
 import rasterio
 
 from . import __version__
-from .accounting import account, read_worldcover, tile_products
-from .grid import identity, is_tile_task, retained_transform
+from .accounting import read_worldcover, tile_products
+from .grid import identity, retained_transform
 from .inference import run as infer
 from .io import local_input, read_json, sha256, validate, write_json
 from .prepare import prepare, read_raw_height
@@ -26,10 +26,8 @@ def work(task_file, package, model, source, output):
     try:
         task = read_json(task_file)
         inputs = validate(task, package, model, source)
-        tile = is_tile_task(task)
-        if tile:
-            path = local_input(package, task["inputs"]["worldcover"]["path"])
-            worldcover = read_worldcover(path, task, retained_transform(task["grid"]))
+        path = local_input(package, task["inputs"]["worldcover"]["path"])
+        worldcover = read_worldcover(path, task, retained_transform(task["grid"]))
         code = {p.name: sha256(p) for p in Path(__file__).parent.glob("*.py")}
         identities = dict(
             task_identity=identity(task), task_sha256=sha256(task_file), inputs=inputs,
@@ -58,12 +56,9 @@ def work(task_file, package, model, source, output):
         ) as ds:
             ds.write(final, 1)
             ds.write_mask(valid.astype(np.uint8) * 255)
-        stage = "products" if tile else "account"
+        stage = "products"
         tick = time.monotonic()
-        if tile:
-            result = tile_products(task, arrays, height, crop_grid, worldcover, output / "native")
-        else:
-            result = account(package, task, arrays, height, grid, output / "native")
+        result = tile_products(task, arrays, height, crop_grid, worldcover, output / "native")
         times[stage] = time.monotonic() - tick
         completion = dict(
             schema="spc-agb-window-completion-v3", task_identity=identity(task),
@@ -94,11 +89,7 @@ def main():
     try:
         result = work(*(getattr(args, n).absolute() for n in names))
         selected = result["task_identity"]
-        if "summary" in result:
-            print(f"{selected['country']['code']}/{selected['grid_id']}/{result['window']}: "
-                  f"{result['summary']['stock_tC']:.12f} t C")
-        else:
-            print(f"{selected['grid_id']}/{result['window']}: tile products complete")
+        print(f"{selected['grid_id']}/{result['window']}: tile products complete")
     except Exception as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

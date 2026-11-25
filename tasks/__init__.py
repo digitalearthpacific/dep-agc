@@ -1,1 +1,1 @@
-"""DEP tile production, source loading and country reporting."""
+"""DEP tile production and source loading."""

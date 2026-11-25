@@ -1,6 +1,7 @@
 """Prepare annual inputs, process official tile windows and assemble the tile."""
 
 from contextlib import nullcontext
+from copy import deepcopy
 from functools import partial
 from pathlib import Path
 import sys
@@ -12,19 +13,18 @@ from shapely.geometry import box
 from shapely.ops import unary_union
 
 from carbon.accounting import read_worldcover, tile_products
-from carbon.grid import retained_transform
+from carbon.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, retained_transform, validate_grid
 from carbon.io import check_file, local_input, read_json, sha256, validate_inputs, write_json, write_raster
 from carbon.observation import SUPPORTED_VERSION, validate_observation
 from carbon.prepare import prepare, read_raw_height
 from carbon.science import crop_height
 from .assemble_tile import assemble_tile
-from .inputs.canonical import BANDS, canonical
+from .inputs.canonical import BANDS, CANONICAL_BANDS, canonical
 from .inputs.geometry import pacific_tile_plan
 from .inputs.live_tile import discover_geomad, live_tile_sources, load_geomad_window
 from .inputs.metadata import validate_item
-from .inputs.prepare_country import make_tile_task, pin
 from .inputs.raster import native_blocks
-from .loading import local_pin
+from .loading import local_pin, pin
 from .processing import CarbonProcessor
 
 
@@ -51,11 +51,11 @@ def run_tile(tile_id, year, manifest, output, work, *, model=None, source=None, 
     windows = {window['id']: window for window in grid['windows']}
     if manifest is None:
         items = discover_geomad(grid, year)
-        prepare_window = prepare_discovered_core
+        load_window = load_geomad_window
     else:
         items, route = local_geomad(manifest.parent, inputs['geomad'], year)
         worldcover = local_pin(manifest.parent, inputs['worldcover'])
-        prepare_window = partial(prepare_core, route=route)
+        load_window = partial(load_local_geomad_window, route=route)
     selected, lineage = window_sources(windows, items)
     profile = scientific_profile()
     workers = prepare_workspace(output, work, windows)
@@ -71,10 +71,10 @@ def run_tile(tile_id, year, manifest, output, work, *, model=None, source=None, 
             for key, window in windows.items():
                 worker = workers[key]
                 package = worker.parent/'package'
-                task = prepare_window(grid, window, selected[key], worldcover=cover,
-                                      profile=profile, year=year, package=package)
-                completed = CarbonProcessor(worker_python, ROOT, model, source, worker).process(
-                    {'task': task, 'package': package})['completion']
+                blocks, vrt = load_window(grid, window, selected[key], package)
+                write_core_task(grid, window, blocks, vrt, cover, profile, year, package)
+                processor = CarbonProcessor(worker_python, ROOT, model, source, worker)
+                completed = processor.process(package)
                 replay_rows[key] = dict(task=pin(package/'task.json', work),
                                         prepared_rgb=pin(worker/'prepared/tci-input.tif', work),
                                         raw_height=pin(worker/completed['height']['raw'], work),
@@ -159,16 +159,10 @@ def local_geomad(root, rows, year):
     return items, route
 
 
-def prepare_core(grid, window, items, route, worldcover, profile, year, package):
-    plan = dict(grid=grid, selected=window, source_items=items)
-    _, vrts = native_blocks(plan, package.parent/'native-inputs', route, lambda: None)
-    blocks, vrt = canonical(plan, vrts, package, lambda: None)
-    return write_core_task(grid, window, blocks, vrt, worldcover, profile, year, package)
-
-
-def prepare_discovered_core(grid, window, items, worldcover, profile, year, package):
-    blocks, vrt = load_geomad_window(grid, window, items, package)
-    return write_core_task(grid, window, blocks, vrt, worldcover, profile, year, package)
+def load_local_geomad_window(grid, window, items, package, *, route):
+    plan = dict(grid=grid, selected=window)
+    vrts = native_blocks(window, items, package.parent/'native-inputs', route)
+    return canonical(plan, vrts, package, lambda: None)
 
 
 def write_core_task(grid, window, blocks, vrt, worldcover, profile, year, package):
@@ -181,6 +175,21 @@ def write_core_task(grid, window, blocks, vrt, worldcover, profile, year, packag
                  grid['crs'])
     task = make_tile_task(profile, grid, window, blocks, vrt, package, wc, year)
     write_json(package/'task.json', task)
+
+
+def make_tile_task(profile, grid, window, blocks, vrt, package, worldcover, year):
+    """Bind a Pacific tile window to its pinned local rasters."""
+    task = deepcopy(profile)
+    task.pop('country', None)
+    task.update(schema='spc-agb-window-v3', year=year, window=window['id'])
+    task['grid'] = dict(id=grid['id'], crs=grid['crs'], affine=grid['affine'], shape=grid['shape'],
+        receiving_window=window['global_input_window'], global_input_window=window['global_input_window'],
+        canonical_global_offset=[0, 0], context=MODEL_CONTEXT, patch=MODEL_PATCH, stride=MODEL_STRIDE,
+        retained_shape=window['retained_shape'], bounds=window['bounds'])
+    task['inputs'] = dict(canonical=pin(vrt, package), bands=CANONICAL_BANDS,
+        blocks=[pin(Path(block['file']['path']), package) for block in blocks],
+        worldcover=pin(worldcover, package))
+    validate_grid(task)
     return task
 
 
