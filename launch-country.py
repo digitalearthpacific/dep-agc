@@ -18,7 +18,7 @@ import sys
 import time
 import uuid
 
-from spc_agb_worker.observation import validate_observation
+from carbon.observation import validate_observation
 
 
 def read(path):

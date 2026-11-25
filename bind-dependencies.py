@@ -11,7 +11,7 @@ from pathlib import Path
 import shutil
 
 from configuration import package_metadata, pinned, read, sha, selection, roster
-from spc_agb_inputs.dependencies import dependency_file, ownership_metadata
+from tasks.inputs.dependencies import dependency_file, ownership_metadata
 
 
 def approved_projected(entry, required, catalog_root, metadata_root, crs):

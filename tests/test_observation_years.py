@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 from shapely.geometry import MultiPolygon, box, mapping
 
-from spc_agb_worker.observation import validate_observation, annual_interval
-from spc_agb_worker.io import sha256, write_json
-from spc_agb_inputs.metadata import validate_item, resolve_items
-from spc_agb_inputs.geometry import preparation_geometry
-from spc_agb_inputs.prepare_country import make_task
-from spc_agb_dep.catalog import country_plan
+from carbon.observation import validate_observation, annual_interval
+from carbon.io import sha256, write_json
+from tasks.inputs.metadata import validate_item, resolve_items
+from tasks.inputs.geometry import preparation_geometry
+from tasks.inputs.prepare_country import make_task
+from tasks.catalog import country_plan
 
 
 def item(year):
@@ -29,6 +29,16 @@ def item(year):
 
 
 class ObservationTests(unittest.TestCase):
+    def test_projection_code_and_legacy_epsg_preserve_the_same_grid(self):
+        normalized = item(2024)
+        props = normalized['properties']
+        props.pop('proj:epsg')
+        props['proj:code'] = 'EPSG:3832'
+        self.assertEqual(validate_item(normalized, 2024, '0.4.0'), normalized)
+        props['proj:epsg'] = 4326
+        with self.assertRaises(ValueError):
+            validate_item(normalized, 2024, '0.4.0')
+
     def test_multiple_years_and_wrong_item_interval_asset_or_version(self):
         for year in [2022, 2024, 2025]:
             self.assertEqual(validate_observation(year, '0.4.0'), year)
@@ -56,7 +66,7 @@ class ObservationTests(unittest.TestCase):
             def __exit__(self, *args): pass
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with patch('spc_agb_inputs.metadata.requests.get', return_value=Response()) as request:
+            with patch('tasks.inputs.metadata.requests.get', return_value=Response()) as request:
                 for _ in range(2):
                     items, missing = resolve_items({'source_items': [item(2024)]}, [(75, 25)],
                         root/'incoming', root/'receipts', lambda: None, 2025, '0.4.0')
@@ -75,7 +85,7 @@ class ObservationTests(unittest.TestCase):
         response.raw = io.BytesIO(json.dumps(item(2024)).encode())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with patch('spc_agb_inputs.metadata.requests.get', return_value=response):
+            with patch('tasks.inputs.metadata.requests.get', return_value=response):
                 with self.assertRaises(ValueError):
                     resolve_items({}, [(75, 25)], root/'incoming', root/'receipts',
                                   lambda: None, 2025, '0.4.0')
@@ -114,10 +124,10 @@ class ObservationTests(unittest.TestCase):
                 crs=dict(properties=dict(name='EPSG:3832')),
                 features=[dict(type='Feature', geometry=mapping(geometry))]))
             pin = dict(path='approved-projected.geojson', sha256=sha256(root/'approved-projected.geojson'))
-            with patch('spc_agb_inputs.geometry.projected_boundary', side_effect=AssertionError('raw reprojection')):
+            with patch('tasks.inputs.geometry.projected_boundary', side_effect=AssertionError('raw reprojection')):
                 actual = preparation_geometry(None, 'EPSG:3832', root, pin)
                 self.assertEqual(actual.wkb, geometry.wkb)
-                from spc_agb_worker.io import local_input
+                from carbon.io import local_input
                 with self.assertRaisesRegex(ValueError, 'inputs/'):
                     local_input(root, 'approved-projected.geojson')
                 with self.assertRaises(ValueError):

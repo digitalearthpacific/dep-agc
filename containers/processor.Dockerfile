@@ -36,11 +36,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
  && /opt/adapter-venv/bin/python -m pip check
 
 WORKDIR /opt/processor
-COPY spc_agb_worker/*.py spc_agb_worker/origins.json ./spc_agb_worker/
-COPY spc_agb_inputs/*.py ./spc_agb_inputs/
-COPY spc_agb_dep/*.py ./spc_agb_dep/
-COPY configs/scientific-profile.json configs/countries.json configs/regional-planning.json ./examples/
+COPY carbon/*.py carbon/origins.json ./carbon/
+COPY tasks/*.py ./tasks/
+COPY tasks/inputs/*.py ./tasks/inputs/
+COPY configs/scientific-profile.json configs/countries.json configs/regional-planning.json ./configs/
 COPY release.json ./release.json
 ENV SPC_WORKER_PYTHON=/opt/venv/bin/python
 USER 65534:65534
-ENTRYPOINT ["/opt/adapter-venv/bin/python", "-u", "-B", "-m", "spc_agb_dep.run_task"]
+ENTRYPOINT ["/opt/adapter-venv/bin/python", "-u", "-B", "-m", "tasks"]

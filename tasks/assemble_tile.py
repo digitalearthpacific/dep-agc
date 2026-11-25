@@ -16,19 +16,19 @@ from shapely.geometry import box, mapping
 from shapely.ops import transform, unary_union
 import xarray as xr
 
-from spc_agb_inputs.geometry import pacific_tile_plan
-from spc_agb_inputs.metadata import GEOMAD_ITEMS_URL, validate_item
-from spc_agb_worker.grid import retained_transform
-from spc_agb_worker.io import check_file, read_json, sha256, write_json
-from spc_agb_worker.observation import annual_interval
+from tasks.inputs.geometry import pacific_tile_plan
+from tasks.inputs.metadata import GEOMAD_ITEMS_URL
+from carbon.grid import retained_transform
+from carbon.io import check_file, read_json, sha256, write_json
+from carbon.observation import annual_interval
 from .outputs import LocalReviewPath, STATUS, UNITS, lossless_cog
 
 
 TILE_UNITS = {name: unit for name, unit in UNITS.items() if name not in {'owner', 'physical-area-ha'}}
 
 
-def assemble_tile(tile_id, year, workers, source_items, output):
-    """Write one STAC Item from a complete tile or a subset of finished cores."""
+def assemble_tile(tile_id, year, workers, validated_source_items, output):
+    """Write a tile Item using the GeoMAD Items validated during input loading."""
     grid = pacific_tile_plan(tile_id)
     affine = Affine(*grid['tile_affine'])
     tile_shape = tuple(grid['tile_shape'])
@@ -56,8 +56,8 @@ def assemble_tile(tile_id, year, workers, source_items, output):
                                    for k in ('model', 'source_commit', 'source_sha256')}, sort_keys=True))
     if len(identities) != 1:
         raise ValueError('Mixed model or inference source identities within tile')
-    originals = {item['id']: validate_item(item, year, '0.4.0') for item in source_items}
-    if not originals or len(originals) != len(source_items):
+    originals = {item['id']: item for item in validated_source_items}
+    if not originals or len(originals) != len(validated_source_items):
         raise ValueError('Expected distinct validated GeoMAD source Items')
     sources = [pystac.Item.from_dict(originals[key], href=f'{GEOMAD_ITEMS_URL}/{key}')
                for key in sorted(originals)]
@@ -130,7 +130,7 @@ def assemble_tile(tile_id, year, workers, source_items, output):
     LocalValidator().item_validator().validate(payload)
     write_json(filename, payload)
     result = dict(status='verified', tile=tile_id, year=year, item=filename.name, item_sha256=sha256(filename),
-                  planned_windows=len(grid['windows']), windows=list(workers),
+                  planned_windows=len(grid['windows']), window_count=len(workers),
                   native_shape=list(tile_shape), cog_checks=checks, source_ids=sorted(originals))
     write_json(output/'tile-verification.json', result)
     return result

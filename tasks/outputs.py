@@ -15,9 +15,9 @@ from rasterio.shutil import copy as rio_copy
 from rio_cogeo.cogeo import cog_validate
 import xarray as xr
 
-from spc_agb_inputs.metadata import GEOMAD_ITEMS_URL, validate_item
-from spc_agb_worker.io import read_json, sha256, write_json
-from .inputs import local_pin
+from tasks.inputs.metadata import GEOMAD_ITEMS_URL, validate_item
+from carbon.io import read_json, sha256, write_json
+from .loading import local_pin
 
 UNITS = {'carbon':'t C/ha', 'height':'m', 'physical-area-ha':'ha', 'NDVI':'1',
          'count':'observations', 'owner':'1', 'WorldCover':'1', 'status':'1', 'RGB':'1'}
@@ -124,7 +124,7 @@ class NativeCogStacWriter(Writer):
             native_source_items=source_ids,
             native_index_sha256=result['native_index_sha256'],
             processor_code={str(p.relative_to(Path(__file__).resolve().parents[1])):sha256(p)
-                for folder in ['spc_agb_dep','spc_agb_inputs']
+                for folder in ['tasks','tasks/inputs']
                 for p in sorted((Path(__file__).resolve().parents[1]/folder).glob('*.py'))},
             runtime=dict(python=sys.version,packages={name:metadata.version(name) for name in
                 ['dep-tools','numpy','rasterio','pyproj','shapely','rio-cogeo','pystac','odc-geo']}),

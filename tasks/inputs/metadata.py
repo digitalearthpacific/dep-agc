@@ -9,8 +9,8 @@ from pathlib import Path
 
 import requests
 
-from spc_agb_worker.observation import validate_observation
-from spc_agb_worker.io import check_file, read_json, sha256, write_json
+from carbon.observation import validate_observation
+from carbon.io import check_file, read_json, sha256, write_json
 
 
 GEOMAD_ITEMS_URL = 'https://stac.digitalearthpacific.org/collections/dep_s2_geomad/items'
@@ -19,13 +19,15 @@ GEOMAD_ITEMS_URL = 'https://stac.digitalearthpacific.org/collections/dep_s2_geom
 def validate_item(item, year, version):
     validate_observation(year, version)
     p = item['properties']
+    epsg, code = p.get('proj:epsg'), p.get('proj:code')
     start = datetime.fromisoformat(p['start_datetime'].replace('Z', '+00:00'))
     end = datetime.fromisoformat(p['end_datetime'].replace('Z', '+00:00'))
     if (item['collection'] != 'dep_s2_geomad'
             or not item['id'].startswith('dep_s2_geomad_') or not re.fullmatch(r'dep_s2_geomad_\d{3}_\d{3}_' + f'{year:04d}', item['id'])
             or start != datetime(year, 1, 1, tzinfo=timezone.utc)
             or end.replace(microsecond=0) != datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
-            or p['proj:epsg'] != 3832 or p['proj:shape'] != [9600, 9600]
+            or (epsg, code) not in ((3832, None), (None, 'EPSG:3832'), (3832, 'EPSG:3832'))
+            or p['proj:shape'] != [9600, 9600]
             or p['proj:transform'][:2] != [10, 0] or p['proj:transform'][3:5] != [0, -10]):
         raise ValueError(f'Wrong requested annual GeoMAD item/grid for {year} v{version}')
     for band in ['red', 'green', 'blue', 'nir', 'count']:

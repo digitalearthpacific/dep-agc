@@ -7,14 +7,13 @@ import time
 
 import numpy as np
 import rasterio
-from rasterio.crs import CRS
 
 from . import __version__
 from .accounting import account, read_worldcover, tile_products
 from .grid import identity, is_tile_task, retained_transform
 from .inference import run as infer
 from .io import local_input, read_json, sha256, validate, write_json
-from .prepare import prepare
+from .prepare import prepare, read_raw_height
 from .science import crop_height
 
 
@@ -48,12 +47,7 @@ def work(task_file, package, model, source, output):
         tick = time.monotonic()
         raw_path, metrics = infer(task, model, source, rgb, output / "height")
         times[stage] = time.monotonic() - tick
-        with rasterio.open(raw_path) as ds:
-            if (ds.shape != tuple(reversed(task["grid"]["receiving_window"][2:]))
-                    or ds.count != 1 or ds.dtypes != ("float32",)
-                    or ds.transform != grid or ds.crs != CRS.from_user_input(task["grid"]["crs"])):
-                raise ValueError("Inference output grid/type differs")
-            height = ds.read(1)
+        height = read_raw_height(raw_path, task["grid"], grid)
         d = task["grid"]["context"]
         h, w = task["grid"]["retained_shape"]
         final, valid, crop_grid = crop_height(height, arrays["rgb_valid"], grid, [d, d, w, h])

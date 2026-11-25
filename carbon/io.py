@@ -48,7 +48,7 @@ def check_file(path, digest):
         raise ValueError("Missing or changed input: " + str(path))
 
 
-def validate(task, package, model, source):
+def validate_inputs(task, package):
     validate_grid(task)
     validate_observation(task["year"], task["source_version"])
     if task["source_product"] != "GeoMAD":
@@ -93,6 +93,13 @@ def validate(task, package, model, source):
             or infer["timeout_seconds"] != 900):
         raise ValueError("Accepted inference settings required")
     validate_policy(task["policy"])
+    return identities
+
+
+def validate(task, package, model, source):
+    identities = validate_inputs(task, package)
+    infer = task["inference"]
+    m = infer["model"]
     for name, key in [(m["weights"], "weights_sha256"), (m["training"], "training_sha256")]:
         check_file(model / name, m[key])
     for name, digest in infer["source_sha256"].items():

@@ -13,8 +13,8 @@ import rasterio
 from shapely.geometry import box, shape
 
 from .native_checks import supplied_domain, generated_inputs, cog_native
-from spc_agb_worker.grid import retained_transform
-from spc_agb_worker.io import read_json, sha256, write_json
+from carbon.grid import retained_transform
+from carbon.io import read_json, sha256, write_json
 from .catalog import country_plan, resolve_window
 from .completion import verify_completion
 from .outputs import STATUS
@@ -161,7 +161,7 @@ def assemble(catalog, country, year, results, output):
         compare_summary({k:math.fsum(r[k] for r in per_owner.values()) for k in totals}, totals)
     geometry_closure = {}
     if complete and selected['plan'].get('owners'):
-        from spc_agb_inputs.physical_area import ground_area_ha
+        from carbon.physical_area import ground_area_ha
         for owner in selected['plan']['owners']:
             expected = ground_area_ha(shape(owner['geometry']),selected['plan']['grid']['crs'])
             difference = per_owner[owner['id']]['owned_ha']-expected

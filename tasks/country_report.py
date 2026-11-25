@@ -4,15 +4,64 @@ from itertools import combinations
 import math
 
 import numpy as np
+from affine import Affine
+from pyproj import CRS
 import rasterio
 from rasterio.windows import bounds
-from shapely.geometry import box
+from shapely.geometry import box, shape
 
-from spc_agb_inputs.weights import area_weights
-from spc_agb_worker.accounting import weighted_stock
+from carbon.weights import area_weights
+from carbon.accounting import weighted_stock
+from carbon.io import read_json
+from carbon.observation import annual_interval
+from .inputs.geometry import pacific_tile_plan, projected_boundary
+from .loading import local_pin
 
 
-def report_countries(carbon_path, status_path, countries, *, pilot_footprint=None):
+def report_tile(item_path, countries_path, polygon_crs='EPSG:4326', footprint_path=None):
+    """Read a finished tile Item and report a GeoJSON country FeatureCollection."""
+    item = read_json(item_path)
+    tile = item['id']
+    props = item['properties']
+    start = props['start_datetime']
+    year = int(start[:4])
+    if tile != props['agc:tile_id'] or (start, props['end_datetime']) != annual_interval(year):
+        raise ValueError('Expected an annual Pacific tile Item')
+    grid = pacific_tile_plan(tile)
+    paths = []
+    for name in ('carbon', 'status'):
+        asset = item['assets'][name]
+        path = local_pin(item_path.parent, dict(path=asset['href'], sha256=asset['agc:sha256']))
+        with rasterio.open(path) as ds:
+            if (ds.shape != tuple(grid['tile_shape']) or ds.transform != Affine(*grid['tile_affine'])
+                    or ds.crs is None or ds.crs.to_epsg() != 3832 or ds.files != [str(path)]):
+                raise ValueError(f'{name} must be a self-contained raster on the official tile')
+        paths.append(path)
+    features = read_json(countries_path)
+    if features['type'] != 'FeatureCollection' or not features['features']:
+        raise ValueError('Expected a nonempty GeoJSON country FeatureCollection')
+    epsg = CRS.from_user_input(polygon_crs).to_epsg()
+    if epsg not in (4326, 3832):
+        raise ValueError('Country polygons must use EPSG:4326 or the native EPSG:3832 grid')
+
+    def native(geometry):
+        geom = shape(geometry)
+        return geom if epsg == 3832 else projected_boundary(geom, grid['crs'])
+
+    countries = {}
+    for feature in features['features']:
+        code = feature.get('id', feature.get('properties', {}).get('code'))
+        if not isinstance(code, str) or not code.strip() or code in countries:
+            raise ValueError('Each country feature requires a unique string id or properties.code')
+        countries[code] = native(feature['geometry'])
+    footprint = None
+    if footprint_path is not None:
+        raw = read_json(footprint_path)
+        footprint = native(raw['geometry'] if raw['type'] == 'Feature' else raw)
+    return dict(tile=tile, year=year, **report_countries(*paths, countries, footprint=footprint))
+
+
+def report_countries(carbon_path, status_path, countries, *, footprint=None):
     """Report polygons in the tile CRS. Coverage uses their full in-scope ground area."""
     with rasterio.open(carbon_path) as carbon, rasterio.open(status_path) as status:
         grid = carbon.transform
@@ -25,17 +74,17 @@ def report_countries(carbon_path, status_path, countries, *, pilot_footprint=Non
             raise ValueError('Carbon and status must share a native Pacific 10 m grid')
         tile = box(*carbon.bounds)
         geometries = list(countries.values())
-        if pilot_footprint is not None:
-            geometries.append(pilot_footprint)
+        if footprint is not None:
+            geometries.append(footprint)
         if any(not g.is_valid or g.geom_type not in {'Polygon', 'MultiPolygon'}
                or g.area <= 0 for g in geometries):
-            raise ValueError('Expected valid polygonal country and pilot footprints in the tile CRS')
-        scope = tile if pilot_footprint is None else tile.intersection(pilot_footprint)
+            raise ValueError('Expected valid polygons in the tile CRS')
+        scope = tile if footprint is None else tile.intersection(footprint)
         clipped = {key: scope.intersection(geometry) for key, geometry in countries.items()}
         if any(a.intersection(b).area > 0 for a, b in combinations(clipped.values(), 2)):
             raise ValueError('Country footprints overlap with positive area')
         return {
-            'scope': 'pilot-footprint totals' if pilot_footprint is not None else 'country totals within tile',
+            'scope': 'reporting-footprint totals' if footprint is not None else 'country totals within tile',
             'coverage_denominator': 'Full WGS84 ground area of the country within the reporting footprint',
             'countries': {key: _report(carbon, status, geometry) for key, geometry in clipped.items()},
         }

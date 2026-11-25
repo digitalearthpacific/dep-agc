@@ -11,6 +11,15 @@ from .io import local_input
 from .science import calculate_ndvi, encode, support
 
 
+def read_raw_height(path, grid, transform):
+    with rasterio.open(path) as ds:
+        if (ds.shape != tuple(reversed(grid["receiving_window"][2:]))
+                or ds.count != 1 or ds.dtypes != ("float32",)
+                or ds.transform != transform or ds.crs != CRS.from_user_input(grid["crs"])):
+            raise ValueError("Inference output grid/type differs")
+        return ds.read(1)
+
+
 def prepare(package, task, output):
     grid = task["grid"]
     window = Window(*grid["receiving_window"])

@@ -3,11 +3,11 @@
 from pathlib import Path
 import os
 
-from spc_agb_worker.io import read_json, sha256, write_json
+from carbon.io import read_json, sha256, write_json
 from .completion import output_status
-from .inputs import local_pin
-from spc_agb_worker.observation import validate_observation
-from spc_agb_inputs.dependencies import ownership_metadata
+from .loading import local_pin
+from carbon.observation import validate_observation
+from tasks.inputs.dependencies import ownership_metadata
 from .job import plan_windows, resolve_job, verify_inputs
 
 

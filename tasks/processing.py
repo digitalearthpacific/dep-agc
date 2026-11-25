@@ -8,7 +8,8 @@ import time
 
 from dep_tools.processors import Processor
 
-from spc_agb_worker.io import read_json
+from carbon.grid import is_tile_task
+from carbon.io import read_json
 
 
 class CarbonProcessor(Processor):
@@ -21,11 +22,12 @@ class CarbonProcessor(Processor):
 
     def process(self, loaded):
         from .no_model import no_model_completion
-        completion = no_model_completion(loaded, self.model, self.source, self.output)
+        completion = None if is_tile_task(loaded['task']) else no_model_completion(
+            loaded, self.model, self.source, self.output)
         if completion is not None:
             return dict(loaded, completion=completion, native=self.output/'native',
                         worker=self.output, command=[], worker_seconds=completion['total_seconds'])
-        command = [str(self.python), '-u', '-B', '-m', 'spc_agb_worker',
+        command = [str(self.python), '-u', '-B', '-m', 'carbon',
                    '--task', str(loaded['package']/'task.json'), '--package', str(loaded['package']),
                    '--model', str(self.model), '--source', str(self.source), '--output', str(self.output)]
         env = dict(os.environ, PYTHONPATH=str(self.code), PYTHONNOUSERSITE='1')

@@ -12,12 +12,12 @@ from shapely.geometry import mapping
 from shapely.ops import transform, unary_union
 from pyproj import Transformer
 
-from spc_agb_inputs.geometry import grid_plan, owners, pacific_tile_plan, projected_boundary, provider_tiles
-from spc_agb_inputs.raster import receiving_source_bounds
-from spc_agb_inputs.regional import new_plan, check_plan, owner_extent, owner_capacity, accepted_geometry, run
-from spc_agb_dep.catalog import country_plan, listed_tasks, resolve_window
-from spc_agb_worker.io import sha256
-from spc_agb_worker.grid import validate_grid
+from tasks.inputs.geometry import grid_plan, owners, pacific_tile_plan, projected_boundary, provider_tiles
+from tasks.inputs.raster import receiving_source_bounds
+from tasks.inputs.regional import new_plan, check_plan, owner_extent, owner_capacity, accepted_geometry, run
+from tasks.catalog import country_plan, listed_tasks, resolve_window
+from carbon.io import sha256
+from carbon.grid import validate_grid
 
 RULE = dict(crs='EPSG:3832', anchor=[0, 0], resolution=10, patch=512,
             stride=64, context=224, retained_chunk=2048)

@@ -26,7 +26,7 @@ def run(task,model,source,rgb,output):
         GDAL_PAM_ENABLED='NO',PROJ_NETWORK='OFF',MPLBACKEND='Agg',PYTHONPATH=str(Path(__file__).resolve().parents[1]))
     for key,name in [('TMPDIR','temporary'),('TORCH_HOME','torch'),('CUDA_CACHE_PATH','cuda'),('MPLCONFIGDIR','matplotlib')]:
         path=output/'scratch'/name;path.mkdir(parents=True);env[key]=str(path)
-    command=[sys.executable,'-u','-B','-m','spc_agb_worker.inference',str(request)]
+    command=[sys.executable,'-u','-B','-m','carbon.inference',str(request)]
     with (output/'execution.log').open('x') as log:
         result=subprocess.run(command,cwd=output,env=env,stdout=log,stderr=subprocess.STDOUT,
                               timeout=task['inference']['timeout_seconds'],check=False)

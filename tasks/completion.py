@@ -5,9 +5,9 @@ This is completion filtering, not a new numerical audit or a retry mechanism.
 
 from pathlib import Path
 
-from spc_agb_worker.grid import identity
-from spc_agb_worker.observation import annual_interval
-from spc_agb_worker.io import check_file, read_json, sha256
+from carbon.grid import identity
+from carbon.observation import annual_interval
+from carbon.io import check_file, read_json, sha256
 
 LAYERS = {'RGB', 'height', 'carbon', 'status', 'NDVI', 'count', 'WorldCover',
           'physical-area-ha', 'owner'}
@@ -38,7 +38,7 @@ def verify_completion(output, job, binding, completion_sha256=None):
         task['inputs']['owner_order'], *task['inputs']['blocks'],
         *(o['file'] for o in task['inputs']['owners'])]}
     expected_code = {p.name: sha256(p) for p in
-                     (Path(__file__).resolve().parents[1]/'spc_agb_worker').glob('*.py')}
+                     (Path(__file__).resolve().parents[1]/'carbon').glob('*.py')}
     if (worker['status'] != 'complete' or worker['task_identity'] != identity(task)
             or worker['declared_grid'] != task['grid']
             or (worker['year'], worker['source_product'], worker['source_version']) !=

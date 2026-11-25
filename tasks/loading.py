@@ -12,9 +12,9 @@ import rasterio
 from rasterio.windows import Window
 from shapely.geometry import box
 
-from spc_agb_inputs.canonical import BANDS, canonical
-from spc_agb_worker.grid import receiving_transform
-from spc_agb_worker.io import check_file, local_input, read_json, sha256, write_json
+from tasks.inputs.canonical import BANDS, canonical
+from carbon.grid import receiving_transform
+from carbon.io import check_file, local_input, read_json, sha256, write_json
 
 
 def native_mosaic(path, records, band, valid=False):

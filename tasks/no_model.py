@@ -8,11 +8,11 @@ import time
 
 import numpy as np
 
-from spc_agb_worker.accounting import account, domain
-from spc_agb_worker.grid import identity
-from spc_agb_worker.io import sha256, validate, write_json, write_raster
-from spc_agb_worker.prepare import prepare
-from spc_agb_worker import __version__
+from carbon.accounting import account, domain
+from carbon.grid import identity
+from carbon.io import sha256, validate, write_json, write_raster
+from carbon.prepare import prepare
+from carbon import __version__
 
 
 def eligible_land(arrays, task, dom):
@@ -38,7 +38,7 @@ def no_model_completion(loaded, model, source, output):
         return None
     output.mkdir(parents=True, exist_ok=False)
     inputs = validate(task, package, model, source)  # File hashes only, no model load.
-    code = {p.name:sha256(p) for p in (Path(__file__).resolve().parents[1]/'spc_agb_worker').glob('*.py')}
+    code = {p.name:sha256(p) for p in (Path(__file__).resolve().parents[1]/'carbon').glob('*.py')}
     identities = dict(task_identity=identity(task), task_sha256=sha256(package/'task.json'), inputs=inputs,
         code=code, model=task['inference']['model'], source_commit=task['inference']['source_commit'],
         source_sha256=task['inference']['source_sha256'])

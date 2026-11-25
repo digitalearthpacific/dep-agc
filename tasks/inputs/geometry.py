@@ -12,8 +12,8 @@ from shapely import from_wkb, get_coordinates
 from shapely.geometry import box, mapping, shape
 from shapely.ops import transform, unary_union
 
-from spc_agb_worker.io import read_json
-from spc_agb_worker.grid import DEP_CORE, MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE
+from carbon.io import read_json
+from carbon.grid import DEP_CORE, MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE
 from .dependencies import dependency_file
 
 

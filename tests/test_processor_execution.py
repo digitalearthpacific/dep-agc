@@ -9,11 +9,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from spc_agb_dep.job import resolve_job
-from spc_agb_dep.print_tasks import tasks
-from spc_agb_dep.run_task import run
-from spc_agb_worker.io import read_json, sha256, write_json
-import spc_agb_inputs.canonical as canonical
+from tasks.job import resolve_job
+from tasks.print_tasks import tasks
+from tasks.run_task import run
+from carbon.io import read_json, sha256, write_json
+import tasks.inputs.canonical as canonical
 
 
 class ExecutionTests(unittest.TestCase):

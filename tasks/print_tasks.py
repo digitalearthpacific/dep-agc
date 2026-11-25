@@ -4,12 +4,12 @@ import argparse
 import json
 from pathlib import Path
 
-from spc_agb_worker.io import read_json
+from carbon.io import read_json
 from .job import plan_windows
 from .catalog import listed_tasks
 from .job import resolve_job, verify_inputs
-from .inputs import local_pin
-from spc_agb_worker.io import check_file
+from .loading import local_pin
+from carbon.io import check_file
 
 
 def preparation_tasks(root,country,year,window=None):

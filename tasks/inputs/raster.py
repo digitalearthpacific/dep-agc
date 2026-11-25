@@ -20,9 +20,9 @@ from rasterio.windows import Window, from_bounds
 from shapely.geometry import box
 from shapely.ops import unary_union
 
-from spc_agb_worker.grid import MODEL_PATCH
-from spc_agb_worker.io import sha256
-from spc_agb_worker.io import check_file, read_json, write_json
+from carbon.grid import MODEL_PATCH
+from carbon.io import sha256
+from carbon.io import check_file, read_json, write_json
 
 from .canonical import BANDS, CANONICAL_BANDS, pin, canonical_vrt, canonical
 
@@ -37,9 +37,17 @@ def receiving_source_bounds(plan, window):
     return rasterio.windows.bounds(Window(x, y, w, h), grid)
 
 
+def check_native_geomad(src, item, band):
+    spec = item['assets'][band]['raster:bands'][0]
+    if (src.crs is None or src.crs.to_epsg() != 3832 or src.shape != (9600, 9600)
+            or src.transform != Affine(*item['properties']['proj:transform'][:6])
+            or src.dtypes != ('uint16',) or src.nodata != spec['nodata']):
+        raise ValueError('Actual GeoMAD TIFF grid/type/nodata differs')
+
+
 def native_blocks(plan, folder, route, guard, *, resume=False):
     """Same disjoint <=1024px native blocks/validity as accepted sparse producer."""
-    from spc_agb_dep.inputs import native_mosaic as mosaic_vrt
+    from tasks.loading import native_mosaic as mosaic_vrt
 
     bounds = transform_bounds(plan["grid"]["crs"], 3832,
                               *receiving_source_bounds(plan, plan["selected"]), densify_pts=101)
@@ -57,10 +65,7 @@ def native_blocks(plan, folder, route, guard, *, resume=False):
         for band in BANDS:
             spec = item["assets"][band]["raster:bands"][0]
             with rasterio.open(route[item["assets"][band]["href"]]) as src:
-                if (src.crs.to_epsg() != 3832 or src.shape != (9600, 9600)
-                        or src.transform != affine or src.dtypes != ("uint16",)
-                        or src.nodata != spec["nodata"]):
-                    raise ValueError("Actual GeoMAD TIFF grid/type/nodata differs")
+                check_native_geomad(src, item, band)
                 for xx, yy in coordinates:
                     guard()
                     window = Window(xx*1024, yy*1024, min(1024, 9600-xx*1024), min(1024, 9600-yy*1024))
@@ -145,8 +150,8 @@ def native_blocks(plan, folder, route, guard, *, resume=False):
 
 def static_owner(geometry, bounds, crs, sources, route, native_folder):
     """Accepted bounded WorldCover nearest preparation and exact physical weights."""
-    from spc_agb_inputs.geometry import worldcover_tiles
-    from spc_agb_inputs.weights import area_weights
+    from tasks.inputs.geometry import worldcover_tiles
+    from carbon.weights import area_weights
     from pyproj import Transformer
     from shapely.ops import transform
 

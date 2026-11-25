@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
-from spc_agb_worker.grid import validate_grid
-from spc_agb_worker.io import check_file, local_input, read_json
-from .inputs import local_pin
-from spc_agb_worker.observation import validate_observation
-from spc_agb_inputs.metadata import validate_item
+from carbon.grid import validate_grid
+from carbon.io import check_file, local_input, read_json
+from .loading import local_pin
+from carbon.observation import validate_observation
+from tasks.inputs.metadata import validate_item
 
 
 def plan_windows(plan, country, year=None, source_version='0.4.0'):

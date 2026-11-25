@@ -13,10 +13,10 @@ from shapely.geometry import box, shape
 from shapely.ops import transform, unary_union
 from shapely.strtree import STRtree
 
-from spc_agb_dep.catalog import country_plan
-from spc_agb_dep.job import plan_windows
-from spc_agb_worker.grid import validate_grid
-from spc_agb_worker.io import check_file, read_json, sha256, write_json
+from tasks.catalog import country_plan
+from tasks.job import plan_windows
+from carbon.grid import validate_grid
+from carbon.io import check_file, read_json, sha256, write_json
 from .geometry import country_boundary, grid_plan, projected_boundary, provider_tiles, accepted_geometry
 
 TOLERANCE_M2 = 1e-3  # Existing vector/grid closure tolerance; not a physical-area change.
@@ -139,7 +139,7 @@ def run(config, bindings, seed_catalog, root, prefix, seconds=5400, config_pin=N
     # Boundaries are explicitly bound read-only working copies, with originals
     # retained separately. A planning-only SSD root need not contain INPUT/OUTPUT.
     if (not (root/'GEODATA').is_dir()
-            or root.resolve().is_relative_to(Path(__file__).resolve().parents[1])):
+            or root.resolve().is_relative_to(Path(__file__).resolve().parents[2])):
         raise ValueError('Existing external GEODATA working root required')
     vector = root/'GEODATA/VECTOR'/relative
     report = root/'GEODATA/REPORT'/relative

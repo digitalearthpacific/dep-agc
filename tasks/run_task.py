@@ -11,10 +11,10 @@ import time
 from dep_tools.task import AreaTask
 from odc.geo.geobox import GeoBox
 
-from spc_agb_worker.observation import validate_observation
-from spc_agb_worker.grid import receiving_transform, validate_grid
-from spc_agb_worker.io import read_json, sha256, validate, write_json
-from .inputs import NativeGeoMADLoader
+from carbon.observation import validate_observation
+from carbon.grid import receiving_transform, validate_grid
+from carbon.io import read_json, sha256, validate, write_json
+from .loading import NativeGeoMADLoader
 from .job import resolve_job, verify_inputs
 from .catalog import country_plan, resolve_window
 from .completion import verify_completion

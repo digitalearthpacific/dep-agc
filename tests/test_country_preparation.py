@@ -12,16 +12,16 @@ from unittest.mock import patch
 from affine import Affine
 import numpy as np
 
-from spc_agb_inputs.physical_area import ground_area_ha
-from spc_agb_inputs.prepare_country import make_task, signature
-from spc_agb_inputs.prepare_country import verified_preparation
-from spc_agb_inputs.metadata import validate_item
-from spc_agb_inputs.raster import static_owner
-from spc_agb_dep.no_model import eligible_land
-from spc_agb_dep.no_model import no_model_completion
-from spc_agb_dep.assemble_country import compare_summary, independent_native
-from spc_agb_dep.assemble_country import assemble
-from spc_agb_worker.io import sha256, write_json, write_raster
+from carbon.physical_area import ground_area_ha
+from tasks.inputs.prepare_country import make_task, signature
+from tasks.inputs.prepare_country import verified_preparation
+from tasks.inputs.metadata import validate_item
+from tasks.inputs.raster import static_owner
+from tasks.no_model import eligible_land
+from tasks.no_model import no_model_completion
+from tasks.assemble_country import compare_summary, independent_native
+from tasks.assemble_country import assemble
+from carbon.io import sha256, write_json, write_raster
 from shapely.geometry import box
 import test_processor_execution as execution_fixtures
 
@@ -139,7 +139,7 @@ class CountryPreparationTests(unittest.TestCase):
             count=np.ones((2,2),np.uint16),count_valid=np.ones((2,2),bool))
         output=self.root/'worker'
         (self.root/'worker-eligibility').mkdir()  # Real prepare() creates this directory.
-        with patch('spc_agb_dep.no_model.prepare',return_value=(arrays,Affine(*task['grid']['affine']),rgb)),patch('spc_agb_dep.no_model.validate',return_value={}):
+        with patch('tasks.no_model.prepare',return_value=(arrays,Affine(*task['grid']['affine']),rgb)),patch('tasks.no_model.validate',return_value={}):
             result=no_model_completion(dict(task=task,package=package),self.root,self.root,output)
         self.assertEqual(result['completion_kind'],'no_model');self.assertEqual(len(result['files']),9)
         self.assertEqual(result['summary']['stock_tC'],0);self.assertEqual(result['summary']['assessed_ha'],0)
@@ -151,7 +151,7 @@ class CountryPreparationTests(unittest.TestCase):
         plan=self.root/'plan.json';write_json(plan,dict(country=dict(code='XYZ',name='Synthetic')))
         selection=dict(windows=[dict(id='a',bounds=[0,0,10,10]),dict(id='b',bounds=[10,0,20,10])],
             jobs={},entry=dict(country=dict(code='XYZ',name='Synthetic')),plan_file=plan,plan={})
-        with patch('spc_agb_dep.assemble_country.country_plan',return_value=selection):
+        with patch('tasks.assemble_country.country_plan',return_value=selection):
             result=assemble(self.root/'catalog.json','XYZ',2024,self.root/'results',self.root/'country')
         self.assertFalse(result['complete']);self.assertIsNone(result['summary'])
         self.assertEqual([r['status'] for r in result['windows']],['unprepared','unprepared'])
@@ -160,7 +160,7 @@ class CountryPreparationTests(unittest.TestCase):
         plan=self.root/'plan.json';write_json(plan,{})
         selection=dict(windows=[dict(id='a',bounds=[0,0,10,10]),dict(id='b',bounds=[5,0,15,10])],
             jobs={},entry=dict(country=dict(code='XYZ',name='Synthetic')),plan_file=plan,plan={})
-        with patch('spc_agb_dep.assemble_country.country_plan',return_value=selection),self.assertRaisesRegex(ValueError,'Duplicate'):
+        with patch('tasks.assemble_country.country_plan',return_value=selection),self.assertRaisesRegex(ValueError,'Duplicate'):
             assemble(self.root/'catalog.json','XYZ',2024,self.root/'results',self.root/'country')
 
     def test_physical_functions_match_accepted_operation_order(self):
@@ -173,7 +173,7 @@ class CountryPreparationTests(unittest.TestCase):
             'area_weights':'a3c977b37740e25118ab16dcffc0018b480d86c663b7fd1aecb26745cd53bc22'}
         found={}
         for name in ['physical_area.py','weights.py']:
-            for f in ast.parse((Path(__file__).parents[1]/'spc_agb_inputs'/name).read_text()).body:
+            for f in ast.parse((Path(__file__).parents[1]/'carbon'/name).read_text()).body:
                 if isinstance(f,ast.FunctionDef) and f.name in expected:
                     if isinstance(f.body[0],ast.Expr) and isinstance(f.body[0].value,ast.Constant) and isinstance(f.body[0].value.value,str):
                         f.body=f.body[1:]
@@ -206,13 +206,13 @@ class CountryPreparationTests(unittest.TestCase):
         write_json(integration/'worker/completion.json',dict(summary=summary,owners={'one':summary},files={'carbon':{}}))
         write_json(integration/'integration-completion.json',{})
         selected=dict(windows=[dict(id='a',bounds=[0,0,10,10])],jobs={'a':{}},entry=dict(country=dict(code='XYZ',name='Synthetic')),plan_file=plan,plan={})
-        with patch('spc_agb_dep.assemble_country.country_plan',return_value=selected),\
-             patch('spc_agb_dep.assemble_country.resolve_window',return_value=dict(job=plan,binding=dict(task=task,package=self.root))),\
-             patch('spc_agb_dep.assemble_country.verify_completion',return_value=dict(item='product/item.json')),\
-             patch('spc_agb_dep.assemble_country.independent_native',return_value=dict(summary=summary,owners={'one':summary})),\
-             patch('spc_agb_dep.assemble_country.supplied_domain',return_value={}),\
-             patch('spc_agb_dep.assemble_country.generated_inputs',return_value={}),\
-             patch('spc_agb_dep.assemble_country.cog_native',return_value=dict(metadata_fixture=True)):
+        with patch('tasks.assemble_country.country_plan',return_value=selected),\
+             patch('tasks.assemble_country.resolve_window',return_value=dict(job=plan,binding=dict(task=task,package=self.root))),\
+             patch('tasks.assemble_country.verify_completion',return_value=dict(item='product/item.json')),\
+             patch('tasks.assemble_country.independent_native',return_value=dict(summary=summary,owners={'one':summary})),\
+             patch('tasks.assemble_country.supplied_domain',return_value={}),\
+             patch('tasks.assemble_country.generated_inputs',return_value={}),\
+             patch('tasks.assemble_country.cog_native',return_value=dict(metadata_fixture=True)):
             assembled=assemble(self.root/'catalog.json','XYZ',2024,results,self.root/'country')
         self.assertTrue(assembled['complete'])
         moved=self.root/'relocated';moved.mkdir();shutil.copytree(results,moved/'results');shutil.copytree(self.root/'country',moved/'country')
@@ -240,7 +240,7 @@ class CountryPreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'differs'):verified_preparation(root,selected,config)
 
     def test_missing_required_native_asset_is_explicit_and_never_zero_or_retried(self):
-        from spc_agb_inputs.transport import RangeArchive,SourceAccessFailure
+        from tasks.inputs.transport import RangeArchive,SourceAccessFailure
         class Response:
             status_code=404
             headers={}

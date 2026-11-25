@@ -39,7 +39,7 @@ def supplied_domain(package, task):
         task['grid']['receiving_window'][1]+task['grid']['context'])
     result = dict(owner=np.zeros((height,width),np.uint16),
         worldcover=np.zeros((height,width),np.uint8), weights=np.zeros((height,width),np.float64))
-    from spc_agb_worker.io import read_json, sha256
+    from carbon.io import read_json, sha256
     order = read_json(package/task['inputs']['owner_order']['path']) if 'owner_order' in task['inputs'] else None
     occupied = np.zeros((height,width),bool)
     for row in task['inputs']['owners']:

@@ -200,7 +200,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(manifest['accepted_projected']['path'],'approved-projected.geojson')
         self.assertEqual((destination/'approved-projected.geojson').read_bytes(),geometry.read_bytes())
         self.assertEqual(manifest['ownership'],entry['ownership'])
-        from spc_agb_inputs.dependencies import dependency_file
+        from tasks.inputs.dependencies import dependency_file
         self.assertEqual(dependency_file(destination,manifest['accepted_projected']),destination/'approved-projected.geojson')
 
     def test_certificate_locator_requires_root_file_checksum_and_matching_crs(self):

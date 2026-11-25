@@ -1,8 +1,32 @@
 # Setup
 
-Complete setup before following the [run instructions](../README.md#run).
-The launcher prepares imagery and jobs automatically; it does not download the
-processor image, trained model or external inference source.
+## Tile workflow
+
+Use Python 3.12 on Linux. Install the pinned GIS dependencies in a virtual
+environment from the source root.
+
+```bash
+python3.12 -m venv .venv-gis
+. .venv-gis/bin/activate
+python -m pip install -r requirements/dep-window.txt
+```
+
+For new predictions, use a separate CUDA environment with the pinned
+[inference dependencies](../containers/window-worker-requirements.txt), and set
+`SPC_WORKER_PYTHON` to its Python executable. The worker checks the model and
+inference source hashes from the [scientific profile](../configs/scientific-profile.json).
+For replay and country reporting, the GIS environment is sufficient.
+
+The [tile command](../README.md#run) needs HTTPS access to the DEP STAC catalogue,
+the GeoMAD COGs and ESA WorldCover. Allow disk space for prepared windows and
+the final COGs. An [explicit local input bundle](reference.md#tile-input-bundle)
+is also supported.
+
+## Legacy country workflow
+
+The following setup applies to the archived country-first workflow and its
+reference image. Use the matching source revision and image when resuming a
+historical run. The tile workflow has a separate container entry point.
 
 ## Prerequisites
 
@@ -131,5 +155,5 @@ Resource defaults come from release.json; optional site limits belong in
 and retain the settings for resume. External test observers and independent
 acceptance validators are not runtime prerequisites.
 
-After setup, edit the six-field [run configuration](../run.json) and follow
-[Run](../README.md#run).
+After setup, edit the six-field [run configuration](../run.json) and run
+`python3 launch-country.py --config run.json` from the matching source checkout.

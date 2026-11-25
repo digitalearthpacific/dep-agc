@@ -9,8 +9,8 @@ import json
 import math
 from pathlib import Path
 
-from spc_agb_worker.observation import validate_observation
-from spc_agb_inputs.dependencies import ownership_metadata, dependency_file
+from carbon.observation import validate_observation
+from tasks.inputs.dependencies import ownership_metadata, dependency_file
 
 
 def read(p):

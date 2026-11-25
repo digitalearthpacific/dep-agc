@@ -1,45 +1,68 @@
 # Reference
 
-## Pacific tile windows
+## Pacific tile products
 
-`pacific_tile_plan(tile_id)` in `spc_agb_inputs.geometry` plans the full
+`pacific_tile_plan(tile_id)` in `tasks.inputs.geometry` plans the full
 9,600 × 9,600 `PACIFIC_GRID_10` tile in EPSG:3832. The 25 retained
 1,920 × 1,920 cores cover it once. Each receives 2,368 × 2,368 source pixels,
 including 224 pixels of context on every side. The 512-pixel model patch and
 64-pixel stride stay fixed. Whole-tile boundaries do not clip the imagery context.
 
-Pacific 1,920-pixel worker tasks provide `inputs.worldcover` as a package-local
-path and SHA-256. It is a one-band `uint8` GeoTIFF on the retained grid. Its
-mask identifies available WorldCover pixels, including valid class 0 (unknown).
-The worker applies the existing imagery and carbon rules without country ownership
-inputs. The carbon mask distinguishes assessed zero from water, unknown classes,
-unavailable imagery and unprocessed pixels. The status raster distinguishes these cases.
+`python -m tasks tile TILE_ID YEAR --model model --source inference-source
+--output tile` searches the DEP catalogue for the requested annual GeoMAD v0.4.0
+Items, including neighbours that cover the model context. It reads the required
+COG windows, aligns ESA WorldCover v200 to the retained tile, runs the pinned
+worker and assembles one tile dataset. The tile contains the seven COG
+assets `carbon`, `height`, `NDVI`, `count`, `WorldCover`, `status` and `RGB`, plus
+`TILE_ID.stac-item.json` and `tile-verification.json`. Unprocessed pixels are
+NoData. The status raster distinguishes assessed zero, water, unknown land cover
+and unavailable imagery.
 
-`assemble_tile` in `spc_agb_dep.assemble_tile` takes finished official cores and
-their validated source Items. It writes one local tile-sized COG set and STAC Item.
-Unprocessed pixels are NoData. Legacy country tasks keep their existing contract.
+Work files go in `--work` or the sibling directory `OUTPUT-work`. Both output and
+work need fresh destinations. The work directory holds the discovered Items,
+aligned WorldCover, SHA-256-pinned window inputs, prepared RGB,
+raw heights and `replay.json`. Use that manifest as `--inputs` to
+reconstruct the tile from saved heights. Replay takes no model or source arguments.
 
-`report_countries(carbon_path, status_path, countries, pilot_footprint=...)` in
-`spc_agb_dep.country_report` reads tile COGs and takes a mapping from country ID
-to polygon in the tile CRS. It clips each pixel to the country and optional pilot
-footprint, measures the intersection on WGS84 and applies that ground-area weight
-to assessed carbon density. As in the baseline, the coverage denominator is the
-full in-scope country ground area, including water, unknown classes and unavailable
-or unprocessed pixels. Valid zero contributes assessed area and zero stock. Totals
-with a pilot footprint are labelled as pilot-footprint totals.
+### Tile input bundle
+
+To supply prepared inputs explicitly, pass `--inputs inputs.json`. The bundle
+contains local, SHA-256-pinned inputs. Each file reference
+has `path` (relative to the bundle JSON) and `sha256` (hex digest).
+
+| Field | Content |
+|---|---|
+| `schema` | `agc-tile-inputs-v1` |
+| `tile`, `year` | Official `PACIFIC_GRID_10` ID and integer calendar year |
+| `geomad` | Array of objects with an `item` file reference to a GeoMAD v0.4.0 STAC Item and an `assets` object mapping `red`, `green`, `blue`, `nir` and `count` to local GeoTIFF file references |
+| `worldcover` | File reference to a one-band `uint8` WorldCover GeoTIFF aligned to the full official tile in EPSG:3832. Use an internal validity mask and no NoData value so class 0 remains distinguishable from missing bytes. |
+
+The GeoMAD roster must cover the tile plus its 224 pixels of context, including
+required neighbouring Items. Keep source validity masks in the local GeoTIFFs.
+The command reads these local files and validates their annual identity.
+
+### Country reports
+
+`python -m tasks report TILE_ITEM COUNTRIES_GEOJSON --output country-report.json`
+takes the tile's STAC Item and a GeoJSON FeatureCollection. Each feature needs a
+unique string `id` or `properties.code`. Polygons default to EPSG:4326. Use
+`--polygon-crs EPSG:3832` for native tile coordinates and `--footprint` to apply
+a reporting footprint in the same CRS. Footprint-limited reports are labelled
+`reporting-footprint totals`.
+
+Reporting clips each pixel to the country and optional footprint. The coverage
+denominator is the full WGS84 ground area of the country within the reporting
+footprint and tile, including water, unknown classes, unavailable imagery and
+unprocessed pixels. Valid zero contributes assessed area and zero stock.
 
 ### Accounting layers and report fields
 
-The seven tile STAC COG assets are `carbon`, `height`, `NDVI`, `count`,
-`WorldCover`, `status` and `RGB`. Two accounting layers from the legacy
-country-masked output moved out of the tile product.
-
 | Former COG | Where the information lives |
 |---|---|
-| `physical-area-ha` | Country reporting computes WGS84 ground-area weights in memory for each pixel's intersection with the country and optional pilot footprint. The report records aggregate hectares as `footprint_ha`, `assessed_ha` and the area by status, along with `stock_tC`. Per-pixel weights are transient. |
+| `physical-area-ha` | Country reporting computes WGS84 ground-area weights in memory for each pixel's intersection with the country and optional reporting footprint. The report records aggregate hectares as `footprint_ha`, `assessed_ha` and the area by status, along with `stock_tC`. Per-pixel weights are transient. |
 | `owner` | Legacy rectangular ownership IDs remain in legacy country outputs and saved baselines. For new reports, the input polygons define country membership and their IDs key the `countries` results. A pixel split between countries contributes its respective intersection area to each. The tile's `status` mask identifies processed pixels. |
 
-## Configuration
+## Legacy country configuration
 
 [run.json](../run.json) is the normal six-field configuration. Relative paths
 resolve against that file. The supplied country/year example is editable; it does
@@ -138,7 +161,7 @@ An incomplete country is not advertised as a complete country product.
 
 Height is inferred using the supplied model and fixed preprocessing/profile.
 The accepted height-to-carbon relationship is implemented in the
-[scientific definitions](../spc_agb_worker/science.py); stock is the native
+[scientific definitions](../carbon/science.py); stock is the native
 carbon density multiplied by supplied physical-area weights and reduced over
 classified support. The [profile](../configs/scientific-profile.json)
 defines eligibility, class rules and low-NDVI treatment.
@@ -184,18 +207,15 @@ stderr files for the failed stage, exact commands and paths.
 | Failed/incomplete processing | Preserve logs/results and diagnose the reported cause. No automatic retry or old-output fallback is available. |
 | Existing incompatible state/product | Preserve it. Configuration migration and unverified-destination overwrite are not automatic. |
 
-Individual image stages remain available for diagnosis: preparation, catalogue
-binding/listing, window processing and country assembly. For example, inspect
-preparation arguments without processing:
+Individual country stages remain available for diagnosis. The archived reference
+image uses its original module names. To inspect the corresponding source module
+in this checkout, run:
 
 ```bash
-processor_image=$(python3 -c 'import json; print(json.load(open("release.json"))["image_reference"])')
-docker run --rm --pull never --network none --read-only --user 65534:65534 \
-  --entrypoint /opt/adapter-venv/bin/python "$processor_image" \
-  -B -m spc_agb_inputs.prepare_country --help
+python -m tasks.inputs.prepare_country --help
 ```
 
-Other modules are `spc_agb_dep.catalog`, `spc_agb_dep.print_tasks`,
-`spc_agb_dep.run_task` and `spc_agb_dep.assemble_country`. Use their help and the
+Other modules are `tasks.catalog`, `tasks.print_tasks`,
+`tasks.run_task` and `tasks.assemble_country`. Use their help and the
 recorded stage arguments/mounts for diagnosis, preserving partial results.
 Individual stages are not additional normal setup steps.

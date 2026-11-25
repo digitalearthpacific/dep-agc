@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from spc_agb_worker.policy import RULE, validate_policy
-from spc_agb_worker.science import product_masks
+from carbon.policy import RULE, validate_policy
+from carbon.science import product_masks
 
 
 class AnnualPolicyTests(unittest.TestCase):

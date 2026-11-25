@@ -17,7 +17,7 @@
       "geomad_version": "0.4.0"
     }
   ],
-  "status": "Local one-window container qualified; fresh-country acceptance pending",
+  "status": "Reference image qualified for one saved window. Tile workflow image qualification is pending.",
   "reference_image_id": "sha256:cd7643b734e63f771aad8d6c2c1e8574e4480c06090687b44cdf1d014eb62c16",
   "reference_executed_source": "e66d98e4b8a6fa5e12e646ab61fcdc6099ad85d2",
   "qualification": "local-matching-container-passed",
@@ -33,12 +33,11 @@
   "comparison_reference": {
     "worker_commit": "4277015",
     "observation_year": 2024,
-    "qualification": "Historical comparison; current source passed exact saved-window CPU and matching-container CPU/GPU equivalence"
+    "qualification": "The reference source passed exact saved-window CPU and matching-container CPU/GPU equivalence"
   },
   "qualification_record": {
     "runtime_source_commit": "2d9f9cb4d20a54599f968c4f4c3740c4ec7c22b9",
     "receipt_sha256": "a0c7e3dc51717ccb90d644b8f357a3336e868a1a057dfec07b24d8fef4b5d690",
-    "findings": "https://github.com/Geoneon/spc-agb/issues/217#issuecomment-7104686124",
     "scope": "Local one-window image/CPU/GPU/COG/STAC equivalence; not fresh-country, clean-install or DEP staging qualification",
     "embedded_release": "Frozen pending metadata retained in tested image; host release binds this immutable image without changing runtime bytes"
   }

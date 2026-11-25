@@ -9,11 +9,11 @@ import numpy as np
 import rasterio
 from shapely.geometry import box
 
-from spc_agb_dep.country_report import report_countries
-from spc_agb_inputs.physical_area import ground_area_ha
-from spc_agb_worker.accounting import read_worldcover, tile_products
-from spc_agb_worker.io import sha256, write_raster
-from spc_agb_worker.policy import RULE
+from tasks.country_report import report_countries
+from carbon.physical_area import ground_area_ha
+from carbon.accounting import read_worldcover, tile_products
+from carbon.io import sha256, write_raster
+from carbon.policy import RULE
 
 
 CRS = 'EPSG:3832'
@@ -55,8 +55,8 @@ class CountryReportTests(unittest.TestCase):
             write_raster(carbon, np.array([[20]], np.float32), valid, GRID, CRS, -9999)
             write_raster(status, np.array([[4]], np.uint8), valid, GRID, CRS)
             before = [sha256(p) for p in (carbon, status)]
-            report = report_countries(carbon, status, {'L': left, 'R': right}, pilot_footprint=whole)
-            self.assertEqual(report['scope'], 'pilot-footprint totals')
+            report = report_countries(carbon, status, {'L': left, 'R': right}, footprint=whole)
+            self.assertEqual(report['scope'], 'reporting-footprint totals')
             parts = report['countries']
             for name, piece in [('L', left), ('R', right)]:
                 area = ground_area_ha(piece, CRS)

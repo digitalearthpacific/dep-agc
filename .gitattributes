@@ -1,7 +1,7 @@
 # Preserve the recorded source bytes across Linux/Windows checkouts.
 * text=auto eol=lf
-spc_agb_worker/*.py -text
-spc_agb_inputs/*.py -text
-spc_agb_dep/*.py -text
+carbon/*.py -text
+tasks/*.py -text
+tasks/inputs/*.py -text
 requirements/*.txt -text
 containers/window-worker-requirements.txt -text

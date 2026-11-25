@@ -11,11 +11,11 @@ import pystac
 from pystac.validation.local_validator import LocalValidator
 import rasterio
 
-from spc_agb_dep.inputs import local_pin, native_mosaic
-from spc_agb_dep.outputs import lossless_cog, NativeCogStacWriter
-from spc_agb_dep.processing import CarbonProcessor
-from spc_agb_dep.run_task import task_id
-from spc_agb_worker.io import sha256, write_json
+from tasks.loading import local_pin, native_mosaic
+from tasks.outputs import lossless_cog, NativeCogStacWriter
+from tasks.processing import CarbonProcessor
+from tasks.run_task import task_id
+from carbon.io import sha256, write_json
 
 
 class DepWindowTests(unittest.TestCase):

@@ -139,7 +139,7 @@ class DeliveryTests(unittest.TestCase):
                 launcher.run_batch(self.config, lambda *a: self.fail('runner executed'))
 
     def test_all_selected_ownership_failures_are_reported_before_dispatch(self):
-        from spc_agb_inputs.dependencies import ownership_metadata
+        from tasks.inputs.dependencies import ownership_metadata
         entries = []
         for code in ['AAA', 'BBB']:
             bundle = self.root / 'dependencies' / code
@@ -259,6 +259,7 @@ class ReleaseTests(unittest.TestCase):
             release['image_id'],
             'sha256:d0dbe6ec7fc6fd63f298cea6b7cb5c40155e14b4a515071de9a53b0f08c13887')
         self.assertEqual(release['qualification'], 'local-matching-container-passed')
+        self.assertNotIn('findings', release['qualification_record'])
         inventory, _, profile, path = op.package_metadata(HOST)
         self.assertEqual(inventory['processor_image'], release['image_id'])
         self.assertEqual(op.sha(path), release['scientific_profile_sha256'])
@@ -281,7 +282,7 @@ class ReleaseTests(unittest.TestCase):
         if manifest.exists():
             paths = {r['path'] for r in op.read(manifest)['files']}
             self.assertNotIn('DEP-PR.md', paths)
-            self.assertNotIn('spc_agb_dep/stage_inputs.py', paths)
+            self.assertNotIn('tasks/stage_inputs.py', paths)
             self.assertFalse(any('execution_' in p for p in paths if p.endswith('.json')))
 
 

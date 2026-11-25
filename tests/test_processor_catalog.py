@@ -12,12 +12,12 @@ import unittest
 from unittest.mock import patch
 
 import test_processor_execution as fixtures
-from spc_agb_dep.catalog import country_plan, listed_tasks, resolve_window, bind_results
-from spc_agb_dep.completion import LAYERS
-from spc_agb_dep.job import resolve_job
-from spc_agb_dep.run_task import run, select_arguments
-from spc_agb_worker.grid import identity
-from spc_agb_worker.io import read_json, sha256
+from tasks.catalog import country_plan, listed_tasks, resolve_window, bind_results
+from tasks.completion import LAYERS
+from tasks.job import resolve_job
+from tasks.run_task import run, select_arguments
+from carbon.grid import identity
+from carbon.io import read_json, sha256
 
 
 def save(path, obj):
@@ -66,7 +66,7 @@ class CatalogTests(unittest.TestCase):
             bind_results(self.index,'AAA',2024,self.root,self.root/'invalid.json')
 
     def test_execution_job_ids_require_no_unpublished_json_helper(self):
-        p=subprocess.run([sys.executable,'-B','-m','spc_agb_dep.print_tasks','--catalog',str(self.index),
+        p=subprocess.run([sys.executable,'-B','-m','tasks.print_tasks','--catalog',str(self.index),
             '--country','AAA','--year','2024','--ids'],cwd=Path(__file__).parents[1],text=True,capture_output=True)
         self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout.strip(),'r+000-c+000')
 
@@ -84,7 +84,7 @@ class CatalogTests(unittest.TestCase):
         inputs = {r['path']: r['sha256'] for r in [t['inputs']['canonical'],
                   t['inputs']['owner_order'], *t['inputs']['blocks'],
                   *(o['file'] for o in t['inputs']['owners'])]}
-        code_root = Path(__file__).resolve().parents[1]/'spc_agb_worker'
+        code_root = Path(__file__).resolve().parents[1]/'carbon'
         ids = dict(task_sha256=sha256(self.job_root/'task.json'), inputs=inputs,
                    code={p.name: sha256(p) for p in code_root.glob('*.py')},
                    model=t['inference']['model'], source_commit=t['inference']['source_commit'],
@@ -128,7 +128,7 @@ class CatalogTests(unittest.TestCase):
         explicit = resolve_job(self.job, 2024, '0.4.0')
         selected = resolve_job(args.job, 2024, '0.4.0')
         self.assertEqual(selected, explicit)
-        with patch('spc_agb_dep.run_task.NativeGeoMADLoader') as loader:
+        with patch('tasks.run_task.NativeGeoMADLoader') as loader:
             result = run(args)
             self.assertEqual(result['status'], 'inputs-verified'); loader.assert_not_called()
         self.assertFalse((self.root/'results').exists())
@@ -206,7 +206,7 @@ class CatalogTests(unittest.TestCase):
         # File-only validation has no model mount for this fixture; omit model/source as a pair.
         args = select_arguments(self.args(output=out)); args.verify_inputs=False; args.skip_completed=True
         before = (out/'integration-completion.json').read_bytes()
-        with patch('spc_agb_dep.run_task.CarbonProcessor') as processor:
+        with patch('tasks.run_task.CarbonProcessor') as processor:
             self.assertEqual(run(args)['status'], 'skipped-verified-complete'); processor.assert_not_called()
         self.assertEqual(before, (out/'integration-completion.json').read_bytes())
         (out/'product/carbon.tif').write_bytes(b'corrupt')
@@ -227,7 +227,7 @@ class CatalogTests(unittest.TestCase):
             if status == 'failed': save(out/'integration-failure.json', dict(error='retained'))
             self.assertEqual(listed_tasks(self.index, 'AAA', 2024)[0]['status'], status)
             args = select_arguments(self.args(output=out)); args.verify_inputs=False; args.skip_completed=True
-            with patch('spc_agb_dep.run_task.CarbonProcessor') as processor:
+            with patch('tasks.run_task.CarbonProcessor') as processor:
                 with self.assertRaises(FileExistsError): run(args)
                 processor.assert_not_called()
             self.assertEqual(marker.read_bytes(), b'partial')

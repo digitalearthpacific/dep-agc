@@ -18,17 +18,17 @@ from shapely.geometry import box, mapping, shape
 from shapely.ops import transform
 from pyproj import Transformer
 
-from spc_agb_dep.catalog import country_plan
-from spc_agb_dep.inputs import BANDS, local_pin
-from spc_agb_dep.job import resolve_job, verify_inputs
-from spc_agb_worker.accounting import domain
-from spc_agb_worker.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, is_tile_task, validate_grid
-from spc_agb_worker.io import check_file, read_json, sha256, write_json
-from spc_agb_worker.prepare import prepare
+from tasks.catalog import country_plan
+from tasks.loading import BANDS, local_pin
+from tasks.job import resolve_job, verify_inputs
+from carbon.accounting import domain
+from carbon.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, is_tile_task, validate_grid
+from carbon.io import check_file, read_json, sha256, write_json
+from carbon.prepare import prepare
 from .canonical import CANONICAL_BANDS, canonical
 from .dependencies import ownership_metadata, owner_fingerprints, dependency_file
 from .geometry import country_boundary, preparation_geometry, owners, provider_tiles, worldcover_tiles
-from spc_agb_worker.observation import validate_observation
+from carbon.observation import validate_observation
 from .metadata import resolve_items
 from .raster import native_blocks, receiving_source_bounds, static_owner
 from .state import atomic, writer_lock
