@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -13,6 +14,7 @@ from odc.geo.geobox import GeoBox
 import rasterio
 
 from carbon.io import read_json, sha256, write_json, write_raster
+from carbon.observation import SUPPORTED_VERSION
 from tasks.__main__ import main
 from tasks.inputs.geometry import pacific_tile_plan
 from tasks.inputs.live_tile import align_worldcover
@@ -24,19 +26,35 @@ TILE, YEAR = '075_025', 2024
 NORTHWEST_SOURCES = [(74, 25), (74, 26), (75, 25), (75, 26)]
 
 
-def source_item(col, row):
+def source_item(col, row, *, year=YEAR, version=SUPPORTED_VERSION):
     left, bottom = -3000000 + col * 96000, -4000000 + row * 96000
     top = bottom + 96000
-    key = f'dep_s2_geomad_{col:03d}_{row:03d}_{YEAR}'
+    key = f'dep_s2_geomad_{col:03d}_{row:03d}_{year}'
+    version_path = version.replace('.', '-')
     return dict(id=key, collection='dep_s2_geomad', properties={
-        'start_datetime': f'{YEAR}-01-01T00:00:00Z', 'end_datetime': f'{YEAR}-12-31T23:59:59Z',
+        'start_datetime': f'{year}-01-01T00:00:00Z', 'end_datetime': f'{year}-12-31T23:59:59Z',
         'proj:epsg': 3832, 'proj:shape': [9600, 9600],
         'proj:transform': [10, 0, left, 0, -10, top], 'proj:bbox': [left, bottom, left+96000, top],
     }, assets={band: dict(
-        href=f'https://dep-public-data.s3.us-west-2.amazonaws.com/dep_s2_geomad/0-4-0/{YEAR}/{key}/{band}.tif',
+        href=f'https://dep-public-data.s3.us-west-2.amazonaws.com/dep_s2_geomad/{version_path}/{year}/{key}/{band}.tif',
         **{'raster:bands': [dict(scale=1 if band == 'count' else .0001, offset=0,
                                  nodata=9999 if band == 'count' else 0, data_type='uint16')]},
     ) for band in ('red', 'green', 'blue', 'nir', 'count')})
+
+
+def local_input_fixture(root, items):
+    asset = root/'band.tif'
+    write_raster(asset, np.ones((1, 1), np.uint16), np.ones((1, 1), bool),
+                 Affine(10, 0, 4200000, 0, -10, -1504000), 'EPSG:3832')
+    asset_pin = dict(path=asset.name, sha256=sha256(asset))
+    geomad = []
+    for item in items:
+        path = root/(item['id']+'.json')
+        write_json(path, item)
+        geomad.append(dict(item=dict(path=path.name, sha256=sha256(path)),
+                           assets=dict.fromkeys(item['assets'], asset_pin)))
+    return dict(schema='agc-tile-inputs-v1', tile=TILE, year=YEAR, version=SUPPORTED_VERSION,
+                geomad=geomad, worldcover=asset_pin)
 
 
 class TileCommandTests(unittest.TestCase):
@@ -91,18 +109,9 @@ class TileCommandTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             inputs, output = root/'inputs.json', root/'tile'
-            asset = root/'band.tif'
-            write_raster(asset, np.ones((1, 1), np.uint16), np.ones((1, 1), bool),
-                         Affine(10, 0, 4200000, 0, -10, -1504000), 'EPSG:3832')
-            asset_pin = dict(path=asset.name, sha256=sha256(asset))
-            geomad = []
-            for item in [*required, extra]:
-                item_path = root/(item['id']+'.json')
-                write_json(item_path, item)
-                geomad.append(dict(item=dict(path=item_path.name, sha256=sha256(item_path)),
-                                   assets=dict.fromkeys(item['assets'], asset_pin)))
-            write_json(inputs, dict(schema='agc-tile-inputs-v1', tile=TILE, year=YEAR,
-                                    geomad=geomad, worldcover=asset_pin))
+            fixture = local_input_fixture(root, [*required, extra])
+            write_json(inputs, fixture)
+            asset = root/fixture['worldcover']['path']
 
             def prepare(grid, window, blocks, vrt, worldcover, profile, year, package):
                 package.mkdir(parents=True)
@@ -145,7 +154,7 @@ class TileCommandTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             inputs = root/'replay.json'
-            write_json(inputs, dict(schema='agc-tile-replay-v1', tile=TILE, year=YEAR,
+            write_json(inputs, dict(schema='agc-tile-replay-v1', tile=TILE, year=YEAR, version=SUPPORTED_VERSION,
                                    source_items=items, windows={edge['id']: saved}))
             with patch('tasks.tile.replay_core') as replay, patch('tasks.tile.CarbonProcessor') as processor, \
                  patch('tasks.tile.validate_item', wraps=validate_item) as check_item, \
@@ -156,6 +165,48 @@ class TileCommandTests(unittest.TestCase):
             self.assertEqual(replay.call_args.args[:2], (root, saved))
             self.assertEqual([call.args[0] for call in check_item.call_args_list], items)
             assemble.assert_called_once()
+
+    def test_input_paths_reject_mislabeled_source_items_before_processing(self):
+        edge = pacific_tile_plan(TILE)['windows'][0]
+        items = [source_item(*pair) for pair in NORTHWEST_SOURCES]
+        cases = [
+            ('year', source_item(*NORTHWEST_SOURCES[-1], year=2023),
+             'Wrong requested annual GeoMAD item/grid for 2024 v0.4.0'),
+            ('version', source_item(*NORTHWEST_SOURCES[-1], version='0.5.0'),
+             'Incompatible red asset year/version/encoding for GeoMAD 2024 v0.4.0'),
+        ]
+        for mode in ('explicit local', 'saved height'):
+            for field, replacement, message in cases:
+                with self.subTest(mode=mode, field=field), TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    if mode == 'explicit local':
+                        manifest = local_input_fixture(root, items)
+                        pin = manifest['geomad'][-1]['item']
+                        item_path = root/pin['path']
+                        item_path.write_text(json.dumps(replacement), encoding='utf-8')
+                        pin['sha256'] = sha256(item_path)
+                        model_args = dict(model=root/'model', source=root/'source')
+                    else:
+                        saved = dict(source_ids=[item['id'] for item in items])
+                        manifest = dict(schema='agc-tile-replay-v1', tile=TILE, year=YEAR,
+                                        version=SUPPORTED_VERSION, source_items=[*items[:-1], replacement],
+                                        windows={edge['id']: saved})
+                        model_args = {}
+                    inputs, output, work = root/'inputs.json', root/'tile', root/'work'
+                    write_json(inputs, manifest)
+                    with patch('tasks.tile.load_local_geomad_window') as load, \
+                         patch('tasks.tile.replay_core') as replay, \
+                         patch('tasks.tile.CarbonProcessor') as processor, \
+                         patch('tasks.tile.assemble_tile') as assemble:
+                        with self.assertRaises(ValueError) as rejected:
+                            run_tile(TILE, YEAR, inputs, output, work, **model_args)
+                    self.assertEqual(str(rejected.exception), message)
+                    load.assert_not_called()
+                    replay.assert_not_called()
+                    processor.assert_not_called()
+                    assemble.assert_not_called()
+                    self.assertFalse(work.exists())
+                    self.assertFalse(output.exists())
 
     def test_replay_rejects_missing_neighbour_before_processing(self):
         with TemporaryDirectory() as temp:
