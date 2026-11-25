@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 
 from affine import Affine
 from dep_tools.namers import GenericItemPath
-from dep_tools.stac_utils import StacCreator, set_derived_from
+from dep_tools.stac_utils import StacCreator, set_derived_from, write_stac_local
 import numpy as np
 import pystac
 from pystac.validation.local_validator import LocalValidator
@@ -119,14 +119,15 @@ def assemble_tile(tile_id, year, workers, validated_source_items, output):
     filename = output/f'{tile_id}.stac-item.json'
     item.set_self_href(str(filename))
     item.make_asset_hrefs_relative()
+    item.remove_links('self')
     for name, asset in item.assets.items():
         asset.roles = ['visual'] if name == 'RGB' else ['data']
         asset.extra_fields['agc:sha256'] = checks[name]['sha256']
         for band in asset.extra_fields.get('raster:bands', []):
             band['unit'] = UNITS[name]
-    payload = json.loads(json.dumps(item.to_dict(include_self_link=False)))
+    payload = json.loads(json.dumps(item.to_dict(), allow_nan=False))
     LocalValidator().item_validator().validate(payload)
-    write_json(filename, payload)
+    write_stac_local(item, str(filename))
     result = dict(status='verified', tile=tile_id, year=year, item=filename.name, item_sha256=sha256(filename),
                   planned_windows=len(grid['windows']), window_count=len(workers),
                   native_shape=list(tile_shape), cog_checks=checks, source_ids=sorted(originals))

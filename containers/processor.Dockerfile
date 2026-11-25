@@ -41,6 +41,14 @@ COPY tasks/*.py ./tasks/
 COPY tasks/inputs/*.py ./tasks/inputs/
 COPY configs/scientific-profile.json ./configs/
 COPY release.json ./release.json
+
+# dep-tools records the build identity in output STAC Items.
+ARG DOCKER_IMAGE
+ARG COMMIT
+ENV IMAGE_TAG=${DOCKER_IMAGE} \
+    COMMIT=${COMMIT} \
+    IMAGE_REPO=${COMMIT:+https://github.com/digitalearthpacific/dep-agc/tree/${COMMIT}/}
+
 ENV SPC_WORKER_PYTHON=/opt/venv/bin/python
 USER 65534:65534
 ENTRYPOINT ["/opt/adapter-venv/bin/python", "-u", "-B", "-m", "tasks"]

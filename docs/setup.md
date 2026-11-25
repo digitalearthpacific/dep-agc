@@ -21,3 +21,8 @@ The [tile command](../README.md#run) needs HTTPS access to the DEP STAC catalogu
 the GeoMAD COGs and ESA WorldCover. Allow disk space for prepared windows and
 the final COGs. An [explicit local input bundle](reference.md#tile-input-bundle)
 is also supported.
+
+For container builds, pass `--build-arg DOCKER_IMAGE=<image:tag>` and
+`--build-arg COMMIT=<full-git-sha>`. The STAC Item records the supplied tag
+and SHA in `processing:software` and links to the source revision when a
+SHA is supplied.

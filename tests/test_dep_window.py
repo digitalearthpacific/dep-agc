@@ -16,7 +16,7 @@ from tasks.assemble_tile import assemble_tile
 from tasks.inputs.metadata import validate_item
 from tasks.outputs import UNITS, lossless_cog
 from tasks.processing import CarbonProcessor
-from carbon.io import sha256, write_json
+from carbon.io import read_json, sha256, write_json
 
 
 class DepWindowTests(unittest.TestCase):
@@ -65,7 +65,7 @@ class DepWindowTests(unittest.TestCase):
             self.assertEqual(ds.overviews(1),[2,4,8])
         with self.assertRaises(FileExistsError):lossless_cog(source,target)
 
-    def test_stac_local_annual_interval_assets_and_lineage(self):
+    def test_stac_local_annual_interval_assets_lineage_and_build_provenance(self):
         native = self.root/'worker/native'
         native.mkdir(parents=True)
         crs = 'EPSG:3832'
@@ -109,27 +109,53 @@ class DepWindowTests(unittest.TestCase):
             sources.append(source.to_dict())
         expected_links = [f'{stac_root}/{first}', f'{stac_root}/{second}']
         validated = [validate_item(source, 2024, '0.4.0') for source in sources]
-        output = self.root/'product'
-        with patch('tasks.assemble_tile.pacific_tile_plan', return_value=grid):
-            with self.assertRaisesRegex(ValueError, 'distinct'):
-                assemble_tile(tile_id, 2024, {key: native.parent}, [validated[0]] * 2, output)
-            record = assemble_tile(tile_id, 2024, {key: native.parent}, validated[:2], output)
+        workers = {key: native.parent}
+        plan = 'tasks.assemble_tile.pacific_tile_plan'
+        with patch(plan, return_value=grid), self.assertRaisesRegex(ValueError, 'distinct'):
+            assemble_tile(tile_id, 2024, workers, [validated[0]] * 2, self.root/'bad-product')
 
-        item = pystac.Item.from_file(output/record['item'])
-        LocalValidator().item_validator().validate(item.to_dict())
-        self.assertEqual(item.id, tile_id)
-        self.assertIsNone(item.properties['datetime'])
-        self.assertEqual(item.properties['start_datetime'], '2024-01-01T00:00:00Z')
-        self.assertEqual(item.properties['end_datetime'], '2024-12-31T23:59:59Z')
-        self.assertEqual(set(item.assets), set(UNITS))
-        self.assertEqual(item.assets['carbon'].extra_fields['raster:bands'][0]['unit'], 't C/ha')
-        moved = self.root/'relocated-product'
-        output.rename(moved)
-        relocated = pystac.Item.from_file(moved/record['item'])
-        for loaded in (item, relocated):
-            self.assertEqual([link.get_href() for link in loaded.get_links('derived_from')], expected_links)
-        for asset in relocated.assets.values():
-            self.assertTrue(Path(asset.get_absolute_href()).is_file())
+        tag, commit = 'ghcr.io/digitalearthpacific/dep-agc:provenance-test', 'a' * 40
+        repo = f'https://github.com/digitalearthpacific/dep-agc/tree/{commit}/'
+        build = dict(IMAGE_TAG=tag, COMMIT=commit, IMAGE_REPO=repo)
+        for case, env, software, via in [
+            ('unset', {}, None, []),
+            ('empty', dict.fromkeys(build, ''), None, []),
+            ('tag-only', {'IMAGE_TAG': tag}, {'docker-image': tag}, []),
+            ('set', build, {'docker-image': tag, 'commit': commit},
+             [{'rel': 'via', 'href': repo, 'title': 'Processing code'}]),
+        ]:
+            with self.subTest(build=case), patch(plan, return_value=grid), patch.dict(os.environ):
+                for name in build:
+                    os.environ.pop(name, None)
+                os.environ.update(env)
+                output = self.root/case
+                record = assemble_tile(tile_id, 2024, workers, validated[:2], output)
+                path = output/record['item']
+                self.assertEqual(path.name, f'{tile_id}.stac-item.json')
+                self.assertEqual(sha256(path), record['item_sha256'])
+                payload = read_json(path)
+                LocalValidator().item_validator().validate(payload)
+                if software is None:
+                    self.assertNotIn('processing:software', payload['properties'])
+                else:
+                    self.assertEqual(payload['properties']['processing:software'], software)
+                self.assertEqual([link for link in payload['links'] if link['rel'] == 'via'], via)
+                self.assertFalse(any(link['rel'] == 'self' for link in payload['links']))
+
+                item = pystac.Item.from_file(path)
+                self.assertEqual(item.id, tile_id)
+                self.assertIsNone(item.properties['datetime'])
+                self.assertEqual(item.properties['start_datetime'], '2024-01-01T00:00:00Z')
+                self.assertEqual(item.properties['end_datetime'], '2024-12-31T23:59:59Z')
+                self.assertEqual(set(item.assets), set(UNITS))
+                self.assertEqual(item.assets['carbon'].extra_fields['raster:bands'][0]['unit'], 't C/ha')
+                moved = self.root/f'relocated-{case}'
+                output.rename(moved)
+                relocated = pystac.Item.from_file(moved/record['item'])
+                for loaded in (item, relocated):
+                    self.assertEqual([link.get_href() for link in loaded.get_links('derived_from')], expected_links)
+                for asset in relocated.assets.values():
+                    self.assertTrue(Path(asset.get_absolute_href()).is_file())
 
     def test_status_categories_survive_cog(self):
         source=self.root/'status.tif';self.make_raster(source,'uint8')
