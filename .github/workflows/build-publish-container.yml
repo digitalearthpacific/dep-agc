@@ -51,6 +51,9 @@ jobs:
           load: true
           push: false
           tags: ${{ steps.candidate.outputs.ref }}
+          build-args: |
+            DOCKER_IMAGE=${{ steps.candidate.outputs.ref }}
+            COMMIT=${{ steps.candidate.outputs.revision }}
           labels: |
             org.opencontainers.image.source=https://github.com/digitalearthpacific/dep-agc
             org.opencontainers.image.revision=${{ steps.candidate.outputs.revision }}
@@ -67,9 +70,9 @@ jobs:
           test "$(docker image inspect "$REF" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
           docker run "${flags[@]}" "$REF" --help
           docker run "${flags[@]}" --entrypoint /opt/adapter-venv/bin/python "$REF" -B -c \
-            'import os, numpy, rasterio, dep_tools, spc_agb_dep.run_task, spc_agb_inputs.prepare_country; assert os.getuid() == 65534; print("Adapter imports OK", numpy.__version__, rasterio.__version__)'
+            'import os, numpy, rasterio, dep_tools, tasks.__main__; assert os.getuid() == 65534; print("Adapter imports OK", numpy.__version__, rasterio.__version__)'
           docker run "${flags[@]}" --entrypoint /opt/venv/bin/python "$REF" -B -c \
-            'import torch, torchvision, lightning, spc_agb_worker.__main__; assert not torch.cuda.is_available(); print("CPU imports OK", torch.__version__, torchvision.__version__, lightning.__version__)'
+            'import torch, torchvision, lightning, carbon.__main__; assert not torch.cuda.is_available(); print("CPU imports OK", torch.__version__, torchvision.__version__, lightning.__version__)'
 
       - name: Log in to GHCR
         if: inputs.publish
