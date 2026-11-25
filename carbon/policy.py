@@ -3,8 +3,6 @@
 Numerical equivalence and container qualification are pending. Historical
 policies and receipts are retained outside this runtime and are not migrated.
 """
-import hashlib
-import json
 
 VERSION = 'annual-geomad-carbon-v2'
 LAND_CLASSES = [10, 20, 30, 40, 50, 60, 70, 90, 95, 100]
@@ -22,7 +20,6 @@ RULE = {
     'unknown_treatment': 'excluded',
     'water_treatment': 'excluded',
 }
-POLICY_SHA256 = hashlib.sha256(json.dumps(RULE, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def validate_policy(config):

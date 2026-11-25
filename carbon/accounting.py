@@ -9,7 +9,9 @@ from .policy import LAND_CLASSES, RULE
 from .science import product_masks
 
 
-def pixel_products(task, arrays, raw_height, cover, processed):
+def tile_products(task, arrays, raw_height, grid, worldcover, output):
+    """Write the seven retained layers with independent validity masks."""
+    cover, processed = worldcover
     d = task["grid"]["context"]
     h, w = task["grid"]["retained_shape"]
     sl = np.s_[d:d+h, d:d+w]
@@ -32,10 +34,7 @@ def pixel_products(task, arrays, raw_height, cover, processed):
         ("count", arrays["count"][sl], processed & arrays["count_valid"][sl], None),
         ("WorldCover", cover, processed, None),
     ]
-    return layers
-
-
-def write_products(output, layers, grid, crs):
+    crs = task["grid"]["crs"]
     output.mkdir(parents=True, exist_ok=False)
     files = {}
     for name, value, valid, nodata in layers:
@@ -57,9 +56,3 @@ def read_worldcover(path, task, grid):
     if not processed.any() or not np.isin(cover[processed], classes).all():
         raise ValueError("WorldCover has no processed pixels or has invalid classes")
     return cover, processed
-
-
-def tile_products(task, arrays, raw_height, grid, worldcover, output):
-    """Write tile products from aligned WorldCover, without country geometry."""
-    layers = pixel_products(task, arrays, raw_height, *worldcover)
-    return write_products(output, layers, grid, task["grid"]["crs"])

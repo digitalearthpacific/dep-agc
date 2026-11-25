@@ -9,7 +9,6 @@ from dep_tools.loaders import OdcLoader
 from dep_tools.searchers import PystacSearcher
 import numpy as np
 from odc.geo.geobox import GeoBox
-import pystac
 from pystac_client import Client
 from pystac_client.stac_api_io import StacApiIO
 import rasterio
@@ -23,11 +22,10 @@ from carbon.io import write_json, write_raster
 from carbon.observation import SUPPORTED_VERSION, annual_interval
 from .canonical import BANDS, canonical_receiving
 from .geometry import worldcover_tiles
-from .metadata import GEOMAD_ITEMS_URL, validate_item
+from .metadata import DEP_STAC_URL, canonical_geomad_item, validate_item
 from .raster import check_native_geomad
 
 
-CATALOG = 'https://stac.digitalearthpacific.org'
 WORLDCOVER = 'https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{}_Map.tif'
 
 
@@ -35,7 +33,7 @@ def discover_geomad(grid, year):
     """Find GeoMAD over the full tile and its outer model context."""
     shape = tuple(size + 2 * grid['context'] for size in grid['tile_shape'])
     area = GeoBox(shape, Affine(*grid['affine']), grid['crs'])
-    client = Client.open(CATALOG, stac_io=StacApiIO(timeout=(10, 30), max_retries=0))
+    client = Client.open(DEP_STAC_URL, stac_io=StacApiIO(timeout=(10, 30), max_retries=0))
     searcher = PystacSearcher(client=client, collections=['dep_s2_geomad'],
                               datetime='/'.join(annual_interval(year)))
     try:
@@ -102,7 +100,7 @@ def align_worldcover(tile, geographic, sources, path):
 def load_geomad_window(grid, window, items, package):
     x, y, w, h = window['global_input_window']
     target = GeoBox((h, w), Affine(*grid['affine']) * Affine.translation(x, y), grid['crs'])
-    sources = [pystac.Item.from_dict(obj, href=f'{GEOMAD_ITEMS_URL}/{obj["id"]}') for obj in items]
+    sources = [canonical_geomad_item(item) for item in items]
     loader = OdcLoader(bands=BANDS, groupby='solar_day', resampling='nearest',
                        fail_on_error=True, clip_to_areas=False)
     data = loader.load(sources, target)

@@ -27,14 +27,14 @@ def pacific_tile_plan(tile_id):
     for row in range(per_axis):
         for col in range(per_axis):
             x, y = col * DEP_CORE, row * DEP_CORE
-            windows.append(dict(id=f'r{row:02d}c{col:02d}', row=row, col=col,
+            windows.append(dict(id=f'r{row:02d}c{col:02d}',
                 bounds=list(array_bounds(DEP_CORE, DEP_CORE, tile.transform * Affine.translation(x, y))),
                 input_bounds=list(array_bounds(size, size, receiving * Affine.translation(x, y))),
                 global_input_window=[x, y, size, size], retained_shape=[DEP_CORE, DEP_CORE]))
     # Only canonical storage is block padded. The worker reads the exact receiving window.
     padded = math.ceil((width + 2 * MODEL_CONTEXT) / MODEL_PATCH) * MODEL_PATCH
     return dict(id=f'PACIFIC_GRID_10/{tile_id}', tile_id=tile_id, crs='EPSG:3832',
-        tile_affine=list(tile.transform)[:6], tile_shape=[width, width], tile_bounds=list(tile.boundingbox.bbox),
+        tile_affine=list(tile.transform)[:6], tile_shape=[width, width],
         context=MODEL_CONTEXT, patch=MODEL_PATCH, stride=MODEL_STRIDE,
         affine=list(receiving)[:6], shape=[padded, padded], windows=windows)
 

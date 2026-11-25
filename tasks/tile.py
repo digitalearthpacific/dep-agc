@@ -13,7 +13,7 @@ from shapely.geometry import box
 from shapely.ops import unary_union
 
 from carbon.accounting import read_worldcover, tile_products
-from carbon.grid import MODEL_CONTEXT, MODEL_PATCH, MODEL_STRIDE, retained_transform, validate_grid
+from carbon.grid import retained_transform, validate_grid
 from carbon.io import check_file, local_input, read_json, sha256, validate_inputs, write_json, write_raster
 from carbon.observation import SUPPORTED_VERSION, validate_observation
 from carbon.prepare import prepare, read_raw_height
@@ -184,7 +184,7 @@ def make_tile_task(profile, grid, window, blocks, vrt, package, worldcover, year
     task.update(schema='spc-agb-window-v3', year=year, window=window['id'])
     task['grid'] = dict(id=grid['id'], crs=grid['crs'], affine=grid['affine'], shape=grid['shape'],
         receiving_window=window['global_input_window'], global_input_window=window['global_input_window'],
-        canonical_global_offset=[0, 0], context=MODEL_CONTEXT, patch=MODEL_PATCH, stride=MODEL_STRIDE,
+        canonical_global_offset=[0, 0], context=grid['context'], patch=grid['patch'], stride=grid['stride'],
         retained_shape=window['retained_shape'], bounds=window['bounds'])
     task['inputs'] = dict(canonical=pin(vrt, package), bands=CANONICAL_BANDS,
         blocks=[pin(Path(block['file']['path']), package) for block in blocks],

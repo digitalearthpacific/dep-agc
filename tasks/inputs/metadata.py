@@ -3,10 +3,18 @@ import re
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
 
+import pystac
+
 from carbon.observation import validate_observation
+from .canonical import BANDS
 
 
-GEOMAD_ITEMS_URL = 'https://stac.digitalearthpacific.org/collections/dep_s2_geomad/items'
+DEP_STAC_URL = 'https://stac.digitalearthpacific.org'
+GEOMAD_ITEMS_URL = f'{DEP_STAC_URL}/collections/dep_s2_geomad/items'
+
+
+def canonical_geomad_item(item):
+    return pystac.Item.from_dict(item, href=f'{GEOMAD_ITEMS_URL}/{item["id"]}')
 
 
 def validate_item(item, year, version):
@@ -23,7 +31,7 @@ def validate_item(item, year, version):
             or p['proj:shape'] != [9600, 9600]
             or p['proj:transform'][:2] != [10, 0] or p['proj:transform'][3:5] != [0, -10]):
         raise ValueError(f'Wrong requested annual GeoMAD item/grid for {year} v{version}')
-    for band in ['red', 'green', 'blue', 'nir', 'count']:
+    for band in BANDS:
         if band not in item['assets']:
             raise ValueError(f'Missing required {band} asset for GeoMAD {year} v{version}')
         a = item['assets'][band]

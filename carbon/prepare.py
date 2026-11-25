@@ -42,11 +42,10 @@ def prepare(package, task, output):
                     arrays["count"], arrays["count_valid"])
     arrays["rgb"] = encode(raw, valid, .0001, 0)
     arrays["rgb_valid"] = valid
-    arrays["ndvi"], masks = calculate_ndvi(
+    arrays["ndvi"], arrays["ndvi_valid"] = calculate_ndvi(
         arrays["red"], arrays["nir"], arrays["red_valid"], arrays["nir_valid"],
         (.0001, 0, 0), (.0001, 0, 0),
     )
-    arrays["ndvi_valid"] = masks["ndvi_valid"]
     transform = receiving_transform(grid)
     output.mkdir(parents=True, exist_ok=False)
     path = output / "tci-input.tif"

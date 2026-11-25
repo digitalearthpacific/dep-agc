@@ -8,7 +8,6 @@ from affine import Affine
 from dep_tools.namers import GenericItemPath
 from dep_tools.stac_utils import StacCreator, set_derived_from, write_stac_local
 import numpy as np
-import pystac
 from pystac.validation.local_validator import LocalValidator
 from pyproj import Transformer
 import rasterio
@@ -18,10 +17,10 @@ from shapely.ops import transform, unary_union
 import xarray as xr
 
 from tasks.inputs.geometry import pacific_tile_plan
-from tasks.inputs.metadata import GEOMAD_ITEMS_URL
+from tasks.inputs.metadata import canonical_geomad_item
 from carbon.grid import retained_transform
 from carbon.io import check_file, read_json, sha256, write_json
-from carbon.observation import annual_interval
+from carbon.observation import SUPPORTED_VERSION, annual_interval
 from .outputs import STATUS, UNITS, lossless_cog
 
 
@@ -43,7 +42,8 @@ def assemble_tile(tile_id, year, workers, validated_source_items, output):
         x, y = window['global_input_window'][:2]
         if (record['status'], record['window'], record['year'], record['source_version'],
                 declared['id'], declared['crs'], declared['retained_shape'], retained_transform(declared)) != (
-                'complete', key, year, '0.4.0', grid['id'], grid['crs'], [h, w], affine * Affine.translation(x, y)):
+                'complete', key, year, SUPPORTED_VERSION, grid['id'], grid['crs'], [h, w],
+                affine * Affine.translation(x, y)):
             raise ValueError(f'Completion does not match official tile core {key}')
         if set(record['files']) != set(UNITS):
             raise ValueError(f'Unexpected native assets for {key}')
@@ -57,8 +57,7 @@ def assemble_tile(tile_id, year, workers, validated_source_items, output):
     originals = {item['id']: item for item in validated_source_items}
     if not originals or len(originals) != len(validated_source_items):
         raise ValueError('Expected distinct validated GeoMAD source Items')
-    sources = [pystac.Item.from_dict(originals[key], href=f'{GEOMAD_ITEMS_URL}/{key}')
-               for key in sorted(originals)]
+    sources = [canonical_geomad_item(originals[key]) for key in sorted(originals)]
     release = read_json(Path(__file__).resolve().parents[1]/'release.json')
     names = GenericItemPath(sensor='s2', dataset_id=release['stac']['dataset_id'], version=release['version'],
                             time=str(year), prefix=release['stac']['prefix'], full_path_prefix=output)
@@ -106,7 +105,7 @@ def assemble_tile(tile_id, year, workers, validated_source_items, output):
     data.attrs['stac_properties'] = {
         'start_datetime': start, 'end_datetime': end, 'agc:tile_id': tile_id,
         'agc:scope': 'Processed tile pixels; unprocessed pixels are NoData',
-        'agc:window_count': len(workers), 'agc:source_version': '0.4.0',
+        'agc:window_count': len(workers), 'agc:source_version': SUPPORTED_VERSION,
         'agc:statuses': STATUS,
     }
     data.attrs['stac_geometry'] = mapping(geographic)

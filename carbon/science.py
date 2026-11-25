@@ -34,13 +34,7 @@ def calculate_ndvi(red, nir, red_valid, nir_valid, red_parameters, nir_parameter
         stored = ratio.astype(np.float32)
     valid = supported & np.isfinite(stored)
     ndvi = stored.copy(); ndvi[~valid] = -9999
-    masks = dict(band_source_valid=source, ndvi_valid=valid,
-                 denominator_invalid=source & bad_denominator,
-                 nonfinite=source & (~finite | (supported & ~np.isfinite(stored))),
-                 negative_denominator=source & finite & (denominator < -epsilon),
-                 negative_reflectance=source & finite & ((r < 0) | (n < 0)),
-                 outside_nominal_range=valid & (np.abs(stored) > 1))
-    return ndvi, masks
+    return ndvi, valid
 
 def product_masks(land,usable,source,height_values,model_valid,vi,vi_valid,unknown=None,policy=None):
     """No forest/class/height gate. Separate priority reasons plus independent bits."""

@@ -1,10 +1,6 @@
 {
-  "schema": "spc-agb-scientific-profile-v1",
-  "window": null,
   "source_product": "GeoMAD",
   "source_version": "0.4.0",
-  "grid": {},
-  "inputs": {},
   "policy": {
     "version": "annual-geomad-carbon-v2",
     "source_product": "GeoMAD",
@@ -66,6 +62,5 @@
       "configloader.py": "80a2c1177bca44abd08c4fe36e801b63a2055ba502092a8179ca127ace94f59c"
     },
     "timeout_seconds": 900
-  },
-  "country": {}
+  }
 }
