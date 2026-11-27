@@ -1,0 +1,121 @@
+"""Process annual Pacific tiles and deliver them to S3."""
+
+from contextlib import ExitStack
+import json
+
+import antimeridian
+from pystac.validation.local_validator import LocalValidator
+import rasterio
+from rasterio.crs import CRS
+from rioxarray import open_rasterio
+from shapely import orient_polygons
+from shapely.geometry import box, mapping
+from shapely.ops import unary_union
+import xarray as xr
+
+from src.utils import (
+    GEOMAD_COLLECTION, GEOMAD_ITEMS_URL, STATUS_ASSUMED_ZERO, STATUS_NODATA, SUPPORTED_VERSION, check_geomad_sources,
+)
+
+
+UNITS = {'carbon': 't C/ha', 'status': '1'}
+STATUS = {'0':'excluded water', '1':'unavailable inputs', '4':'modelled (including genuine zero)',
+          '5':'unknown classification', str(STATUS_ASSUMED_ZERO):'NDVI-assumed zero'}
+
+
+def run_tile(plan, year, work_dir, *, searcher, source_ids, loader, worldcover, processor, writer, stac_creator,
+             stac_writer, model_sha256):
+    """Load imagery, run the processor, and deliver one tile for a validated year."""
+    tile = plan['tile']
+    tile_index = tuple(map(int, plan['tile_id'].split('_')))
+    target = plan['buffered_tile']
+    # Find this year's GeoMAD imagery for the tile and the area around it.
+    items = searcher.search(target)
+    sources = tile_sources(plan, year, items, source_ids)
+    work_dir.mkdir(parents=True, exist_ok=False)
+    # Read the remote rasters without looking for extra files beside them.
+    with rasterio.Env(GDAL_PAM_ENABLED='NO', PROJ_NETWORK='OFF', GDAL_DISABLE_READDIR_ON_OPEN='EMPTY_DIR',
+                      GDAL_HTTP_CONNECTTIMEOUT='10', GDAL_HTTP_TIMEOUT='60', GDAL_HTTP_MULTIRANGE='NO'):
+        check_geomad_sources(sources, year)
+        cover_path = worldcover()
+        geomad = loader.load(sources, target)
+        # Use GeoMAD and WorldCover to estimate height and produce carbon and status.
+        native = processor(geomad, cover_path, tile, target, work_dir/'worker')
+        # Check that both rasters match the tile grid before combining them.
+        with ExitStack() as rasters:
+            layers = {}
+            for name, dtype, nodata in (('carbon', 'float32', -9999), ('status', 'uint8', STATUS_NODATA)):
+                path = native/f'{name}.tif'
+                layer = rasters.enter_context(open_rasterio(path))
+                check_tile_raster_header(layer, path, tile, dtype, nodata)
+                layers[name] = layer
+            data = xr.Dataset(layers)
+            # Upload both rasters before publishing the STAC Item that links to them.
+            if len(writer.write(data, tile_index)) != len(UNITS):
+                raise ValueError('Expected one COG for each tile raster')
+            item = create_tile_item(data, plan, year, sources, tile_index, stac_creator, model_sha256)
+        return stac_writer.write(item, tile_index)
+
+
+def tile_sources(plan, year, items, source_ids):
+    """Validate annual Items and keep overlapping sources in search order."""
+    if not items:
+        raise ValueError(f'No annual GeoMAD Items for tile {plan["tile_id"]} in {year}')
+    requested_ids = set(source_ids)
+    seen = set()
+    context = box(*plan['buffered_tile'].boundingbox.bbox)
+    selected = []
+    for item in items:
+        item_id = item.id
+        if item_id not in requested_ids:
+            raise ValueError('DEP catalogue returned an unrequested GeoMAD Item')
+        if item.collection_id != GEOMAD_COLLECTION:
+            raise ValueError(f'Unexpected GeoMAD collection for {item_id}')
+        if item_id in seen:
+            raise ValueError(f'Duplicate annual GeoMAD Item: {item_id}')
+        seen.add(item_id)
+        bounds = box(*item.properties['proj:bbox'])
+        if context.intersection(bounds).area > 0:
+            selected.append((item, bounds))
+    # The loader can fill a gap with NoData, so check that the imagery covers the full buffer.
+    if context.difference(unary_union([bounds for _, bounds in selected])).area > 1:
+        raise ValueError('Annual GeoMAD Items do not cover the full buffered tile')
+    return [item for item, _ in selected]
+
+
+def create_tile_item(data, plan, year, source_items, tile_index, stac_creator, model_sha256):
+    """Create and validate the annual STAC Item for the written COGs."""
+    source_ids = sorted(item.id for item in source_items)
+    footprint = orient_polygons(plan['tile'].extent.to_crs('EPSG:4326', wrapdateline=True).geom)
+    start = f'{year:04d}-01-01T00:00:00Z'
+    end = f'{year:04d}-12-31T23:59:59Z'
+    data.attrs['stac_properties'] = {
+        'start_datetime': start, 'end_datetime': end, 'agc:tile_id': plan['tile_id'],
+        'agc:scope': 'Processed tile pixels; unprocessed pixels are NoData',
+        'agc:source_version': SUPPORTED_VERSION,
+        'agc:model_sha256': model_sha256,
+        'agc:statuses': STATUS,
+    }
+    data.attrs['stac_geometry'] = mapping(footprint)
+    # Link to the official catalogue entry for each GeoMAD source.
+    data.attrs['stac_derived_from'] = [f'{GEOMAD_ITEMS_URL}/{item_id}' for item_id in source_ids]
+    item = stac_creator.process(data, tile_index)
+    # Keep the bounding box narrow when the tile crosses 180° longitude.
+    item.bbox = antimeridian.bbox(footprint)
+    item.datetime = None
+    item.properties.update(datetime=None, start_datetime=start, end_datetime=end)
+    item.make_asset_hrefs_relative()
+    for name, asset in item.assets.items():
+        for band in asset.extra_fields.get('raster:bands', []):
+            band['unit'] = UNITS[name]
+    payload = json.loads(json.dumps(item.to_dict(), allow_nan=False))
+    LocalValidator().item_validator().validate(payload)
+    return item
+
+
+def check_tile_raster_header(layer, path, tile, dtype, nodata):
+    """Check each raster before Xarray aligns coordinates and the COG writer copies its encoding."""
+    if (layer.rio.shape != tuple(tile.shape) or layer.rio.transform() != tile.transform
+            or layer.rio.crs != CRS.from_user_input(str(tile.crs))
+            or layer.sizes.get('band') != 1 or layer.dtype != dtype or layer.rio.nodata != nodata):
+        raise ValueError(f'Invalid native tile grid or encoding for {path}')

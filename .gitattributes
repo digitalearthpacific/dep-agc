@@ -1,7 +1,4 @@
 # Preserve the recorded source bytes across Linux/Windows checkouts.
 * text=auto eol=lf
-carbon/*.py -text
-tasks/*.py -text
-tasks/inputs/*.py -text
-requirements/*.txt -text
-containers/window-worker-requirements.txt -text
+src/*.py -text whitespace=cr-at-eol
+requirements.txt -text
