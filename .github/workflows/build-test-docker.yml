@@ -18,7 +18,11 @@ env:
 jobs:
   check:
     name: Build image and run GIS checks
-    if: github.event_name != 'release' || github.repository != 'digitalearthpacific/dep-agc'
+    # Fork releases run the checks without publishing.
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'release' && github.repository != 'digitalearthpacific/dep-agc')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -48,23 +52,25 @@ jobs:
             org.opencontainers.image.source=https://github.com/digitalearthpacific/dep-agc
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - &offline_checks
-        name: Run offline smoke checks and GIS tests
+      - &checks
+        name: Run smoke checks and GIS tests
         env:
           REF: ${{ env.IMAGE }}:${{ env.TAG }}
         run: |
           set -euo pipefail
           # Temporary storage is for library caches and fixtures in the read-only container.
-          offline=(--rm --network none --read-only
-                   --tmpfs /tmp:rw,nosuid,size=268435456
-                   -e CUDA_VISIBLE_DEVICES= -e NVIDIA_VISIBLE_DEVICES=void
-                   -e AWS_EC2_METADATA_DISABLED=true)
+          container=(--rm --read-only
+                     --tmpfs /tmp:rw,nosuid,size=268435456
+                     -e CUDA_VISIBLE_DEVICES= -e NVIDIA_VISIBLE_DEVICES=void
+                     -e AWS_EC2_METADATA_DISABLED=true)
+          offline=("${container[@]}" --network none)
           test "$(docker image inspect "$REF" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
           docker run "${offline[@]}" "$REF" --help
           docker run "${offline[@]}" --entrypoint /opt/venv/bin/python "$REF" -m pip check
           docker run "${offline[@]}" --entrypoint /opt/venv/bin/python "$REF" -B -c \
             'import os, sys, src.run_task, src.task, src.utils; assert callable(src.utils.infer_height) and "torch" not in sys.modules; import torch, torchvision, lightning; assert os.getuid() == 65534 and not torch.cuda.is_available()'
-          docker run "${offline[@]}" --mount "type=bind,source=$PWD/tests,target=/opt/processor/tests,readonly" \
+          docker run "${container[@]}" --network bridge \
+            --mount "type=bind,source=$PWD/tests,target=/opt/processor/tests,readonly" \
             --entrypoint /opt/venv/bin/python "$REF" -B -m unittest discover -s tests
 
   publish:
@@ -79,7 +85,7 @@ jobs:
       - *checkout
       - *setup_buildx
       - *build
-      - *offline_checks
+      - *checks
 
       - name: Log in to GHCR
         uses: docker/login-action@v3.4.0

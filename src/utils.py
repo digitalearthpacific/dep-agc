@@ -11,16 +11,17 @@ import re
 from urllib.parse import urlsplit
 
 from affine import Affine
-from dep_tools.grids import PACIFIC_GRID_10
 import numpy as np
+from odc.geo.xr import wrap_xr
 import rasterio
-from rasterio.crs import CRS
 from rasterio.enums import MaskFlags
 from rasterio.errors import RasterioIOError
 from rasterio.warp import reproject, Resampling
 from rasterio.windows import Window, from_bounds
 import requests
+import rioxarray  # Register the .rio accessor for GeoMAD NoData checks.
 from shapely.geometry import box
+import xarray as xr
 
 
 # Read GeoMAD beyond the tile boundary so the height model has context at the edges.
@@ -68,12 +69,6 @@ def parse_years(value: str) -> range:
     return range(start, end + 1)
 
 
-def geomad_item_ids(area, year):
-    """List the annual GeoMAD Item IDs covering the buffered tile."""
-    return sorted(f'{GEOMAD_COLLECTION}_{col:03d}_{row:03d}_{year:04d}'
-                  for (col, row), _ in PACIFIC_GRID_10.tiles(area.boundingbox))
-
-
 def check_geomad_sources(items, year):
     """Check the source metadata and TIFFs before ODC reads the buffered tile."""
     annual_start = datetime(year, 1, 1, tzinfo=timezone.utc)
@@ -112,8 +107,8 @@ def check_geomad_sources(items, year):
                     raise ValueError(f'Unexpected GeoMAD TIFF grid, encoding or mask for {item.id}/{band}')
 
 
-def prepare_worldcover(path, tile):
-    """Align WorldCover classes and availability and write them to a TIFF."""
+def prepare_worldcover(tile):
+    """Return WorldCover classes and coverage on the output tile grid."""
     geographic = tile.extent.to_crs('EPSG:4326', resolution=240, wrapdateline=True).geom
     with requests.get(WORLDCOVER_INDEX, timeout=(10, 60)) as response:
         response.raise_for_status()
@@ -123,8 +118,7 @@ def prepare_worldcover(path, tile):
     allowed_classes = (*WORLDCOVER_LAND_CLASSES, WORLDCOVER_WATER_CLASS, WORLDCOVER_UNKNOWN_CLASS)
     if not np.isin(classes[available], allowed_classes).all():
         raise ValueError('WorldCover has invalid classes')
-    write_raster(path, classes, available, tile.transform, str(tile.crs))
-    return path
+    return classes, available
 
 
 def worldcover_tiles(geographic):
@@ -176,11 +170,10 @@ def align_worldcover(tile, geographic, sources):
     return cover, available
 
 
-def process_tile(geomad, worldcover_path, tile, buffered_tile, output, *, model_dir):
-    """Run height inference and return the directory containing the native rasters."""
-    output.mkdir(parents=True, exist_ok=False)
+def process_tile(geomad, worldcover, tile, buffered_tile, *, model_dir):
+    """Run height inference and return the carbon and status layers."""
     try:
-        arrays, rgb_path = prepare(geomad, buffered_tile, output/'prepared')
+        arrays, rgb = prepare(geomad, buffered_tile)
     finally:
         geomad.close()
     # The caller holds the dataset through this call. Release its bands before inference.
@@ -188,15 +181,13 @@ def process_tile(geomad, worldcover_path, tile, buffered_tile, output, *, model_
         del geomad[band]
     # The loader uses rioxarray accessors, which can retain arrays in reference cycles.
     gc.collect()
-    raw_path = infer_height(model_dir, rgb_path, output/'height')
-    height = read_raw_height(raw_path, buffered_tile, arrays['rgb_valid'])
-    worldcover = read_worldcover(worldcover_path, tile)
-    native = output/'native'
-    tile_products(tile, buffered_tile, arrays, height, worldcover, native)
-    return native
+    height = infer_height(model_dir, rgb)
+    del rgb
+    validate_height(height, buffered_tile, arrays['rgb_valid'])
+    return tile_products(tile, buffered_tile, arrays, height, worldcover)
 
 
-def prepare(geomad, buffered_tile, output):
+def prepare(geomad, buffered_tile):
     if geomad.sizes.get('time') != 1:
         raise ValueError('Expected one annual GeoMAD observation')
     # ODC can prefer newer STAC band metadata over the raster:bands values checked above.
@@ -204,40 +195,30 @@ def prepare(geomad, buffered_tile, output):
         if geomad[band].rio.nodata != nodata:
             raise ValueError(f'Loaded GeoMAD NoData differs for {band}')
 
-    transform = buffered_tile.transform
     height, width = buffered_tile.shape
-    crs = str(buffered_tile.crs)
     dims = ('time', *buffered_tile.dimensions)
     if geomad.odc.geobox != buffered_tile or any(
         geomad[name].dims != dims or geomad[name].dtype != np.uint16 for name in GEOMAD_NODATA
     ):
         raise ValueError("Expected uint16 GeoMAD bands on the buffered grid")
     bands = [geomad[name].isel(time=0).data for name in GEOMAD_NODATA]
+    rgb = np.empty((3, height, width), np.uint8)
     rgb_valid = np.empty((height, width), bool)
     ndvi = np.empty((height, width), np.float32)
     ndvi_valid = np.empty((height, width), bool)
-    path = output / "tci-input.tif"
-    with rasterio.Env(GDAL_PAM_ENABLED="NO", GDAL_CACHEMAX=64*2**20, PROJ_NETWORK="OFF",
-                      GDAL_TIFF_INTERNAL_MASK=True):
-        output.mkdir(parents=True, exist_ok=False)
-        with rasterio.open(path, "w", driver="GTiff", height=height, width=width,
-                           count=3, dtype="uint8", crs=crs, transform=transform,
-                           compress="deflate", tiled=True, blockxsize=256, blockysize=256) as dst:
-            dst.colorinterp = (rasterio.enums.ColorInterp.red, rasterio.enums.ColorInterp.green,
-                               rasterio.enums.ColorInterp.blue)
-            # Keep radiometry and NDVI temporaries bounded as the buffered tile grows.
-            for _, block in dst.block_windows(1):
-                placement = block.toslices()
-                raw = np.stack([np.asarray(band[placement]) for band in bands])
-                valid = np.stack([band != nodata for band, nodata in zip(raw, GEOMAD_NODATA.values())])
-                supported = valid[:3].all(axis=0) & valid[4] & (raw[4] > 0)
-                dst.write(encode(raw[:3], supported), window=block)
-                dst.write_mask(supported.astype(np.uint8) * 255, window=block)
-                rgb_valid[placement] = supported
-                ndvi[placement], ndvi_valid[placement] = calculate_ndvi(
-                    raw[0], raw[3], valid[0], valid[3],
-                )
-    return dict(rgb_valid=rgb_valid, ndvi=ndvi, ndvi_valid=ndvi_valid), path
+    # Prepare RGB and NDVI in small blocks to limit temporary arrays.
+    block_size = 256
+    for row, col in product(range(0, height, block_size), range(0, width, block_size)):
+        placement = (slice(row, row + block_size), slice(col, col + block_size))
+        raw = np.stack([np.asarray(band[placement]) for band in bands])
+        valid = np.stack([band != nodata for band, nodata in zip(raw, GEOMAD_NODATA.values())])
+        supported = valid[:3].all(axis=0) & valid[4] & (raw[4] > 0)
+        rgb[:, *placement] = encode(raw[:3], supported)
+        rgb_valid[placement] = supported
+        ndvi[placement], ndvi_valid[placement] = calculate_ndvi(
+            raw[0], raw[3], valid[0], valid[3],
+        )
+    return dict(rgb_valid=rgb_valid, ndvi=ndvi, ndvi_valid=ndvi_valid), rgb
 
 
 def encode(raw, valid):
@@ -266,8 +247,8 @@ def calculate_ndvi(red, nir, red_valid, nir_valid):
     return stored, valid
 
 
-def infer_height(model_dir, rgb_path, output_dir):
-    """Predict and write float32 heights from the prepared RGB tile."""
+def infer_height(model_dir, rgb):
+    """Predict float32 heights on the buffered RGB grid."""
     # Patch stitching follows DEP Veg. The original inference reference is Geoneon's
     # segmentation-inference at revision d0875749fd42a6811c74271d88ced4e5dbf28af7.
     from lightning import Fabric
@@ -314,10 +295,6 @@ def infer_height(model_dir, rgb_path, output_dir):
     logging.getLogger(__name__).info('Running height inference on %s', fabric.device)
     model = fabric.setup(torch.jit.load(model_dir/MODEL_WEIGHTS))
 
-    output_dir.mkdir(parents=True, exist_ok=False)
-    output = output_dir/f'{rgb_path.stem}-height.tif'
-    with rasterio.open(rgb_path) as raster:
-        rgb, profile = raster.read(), raster.meta
     patches = PatchDataset(rgb, patch_size, stride=64)
     batches = DataLoader(patches, batch_size=1, num_workers=0)
     batches = fabric.setup_dataloaders(batches)
@@ -339,20 +316,14 @@ def infer_height(model_dir, rgb_path, output_dir):
                 result[row + top:row + bottom, col + left:col + right] = patch[top:bottom, left:right]
 
     # Prepared RGB encodes unavailable pixels as zero in all three channels.
-    result.numpy()[~rgb.any(axis=0)] = 0
-    profile.update(count=1, dtype='float32', nodata=None, compress='lzw', predictor=3)
-    with rasterio.open(output, 'w', **profile) as raster:
-        raster.write(result.numpy(), 1)
-    return output
+    height_values = result.numpy()
+    height_values[~rgb.any(axis=0)] = 0
+    return height_values
 
 
-def read_raw_height(path, buffered_tile, rgb_valid):
-    with rasterio.open(path) as ds:
-        if (ds.shape != tuple(buffered_tile.shape)
-                or ds.count != 1 or ds.dtypes != ("float32",)
-                or ds.transform != buffered_tile.transform or ds.crs != CRS.from_user_input(str(buffered_tile.crs))):
-            raise ValueError("Inference output grid/type differs")
-        height = ds.read(1)
+def validate_height(height, buffered_tile, rgb_valid):
+    if height.shape != tuple(buffered_tile.shape) or height.dtype != np.float32:
+        raise ValueError("Inference output grid/type differs")
     if rgb_valid.shape != height.shape or rgb_valid.dtype != bool:
         raise ValueError("RGB validity mask differs from the inference grid")
     for start in range(0, height.shape[0], 256):
@@ -360,21 +331,10 @@ def read_raw_height(path, buffered_tile, rgb_valid):
         block = height[rows]
         if np.any(rgb_valid[rows] & (~np.isfinite(block) | (block < 0))):
             raise ValueError("Nonfinite or negative runtime height at source-valid pixels")
-    return height
 
 
-def read_worldcover(path, tile):
-    """Reopen the WorldCover TIFF already validated and prepared for this run."""
-    with rasterio.open(path) as src:
-        if (src.count != 1 or src.dtypes != ("uint8",) or src.nodata is not None
-                or src.transform != tile.transform or src.shape != tuple(tile.shape)
-                or src.crs != CRS.from_user_input(str(tile.crs))):
-            raise ValueError("Expected single-band uint8 WorldCover with no NoData value on the retained grid")
-        return src.read(1), src.read_masks(1) > 0
-
-
-def tile_products(tile, buffered_tile, arrays, raw_height, worldcover, output):
-    """Write the two retained layers using heights validated against the RGB mask."""
+def tile_products(tile, buffered_tile, arrays, raw_height, worldcover):
+    """Build the two output layers using heights validated against the RGB mask."""
     cover, available = worldcover
     core = buffered_tile.overlap_roi(tile)
     height = raw_height[core]
@@ -382,17 +342,14 @@ def tile_products(tile, buffered_tile, arrays, raw_height, worldcover, output):
     ndvi_valid = arrays["ndvi_valid"][core]
     land = available & np.isin(cover, WORLDCOVER_LAND_CLASSES)
     unknown = available & (cover == WORLDCOVER_UNKNOWN_CLASS)
-    carbon_valid, status, carbon = carbon_and_status(
+    _, status, carbon = carbon_and_status(
         land, height, height_valid, arrays["ndvi"][core], ndvi_valid, unknown,
     )
     status[~available] = STATUS_NODATA
-    layers = [
-        ("carbon", carbon, carbon_valid, -9999),
-        ("status", status, available, STATUS_NODATA),
-    ]
-    output.mkdir(parents=True, exist_ok=False)
-    for name, value, valid, nodata in layers:
-        write_raster(output/f'{name}.tif', value, valid, tile.transform, str(tile.crs), nodata)
+    return xr.Dataset({
+        'carbon': wrap_xr(carbon, tile, nodata=np.nan),
+        'status': wrap_xr(status, tile, nodata=STATUS_NODATA),
+    })
 
 
 def carbon_and_status(land, height, height_valid, ndvi, ndvi_valid, unknown):
@@ -412,7 +369,7 @@ def carbon_and_status(land, height, height_valid, ndvi, ndvi_valid, unknown):
     status[unknown] = 5
     status[assumed_zero] = STATUS_ASSUMED_ZERO
 
-    density = np.full(land.shape, -9999, np.float32)
+    density = np.full(land.shape, np.nan, np.float32)
     with np.errstate(over='ignore'):
         modelled_density = (
             HEIGHT_TO_CARBON_COEFFICIENT * height[modelled].astype(np.float64)**HEIGHT_TO_CARBON_EXPONENT
@@ -422,16 +379,3 @@ def carbon_and_status(land, height, height_valid, ndvi, ndvi_valid, unknown):
     density[modelled] = modelled_density
     density[assumed_zero] = 0
     return modelled | assumed_zero, status, density
-
-
-def write_raster(path, values, valid, grid, crs, nodata=None):
-    """Write an internal validity mask so valid zeros survive independently of NoData."""
-    height, width = values.shape
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with rasterio.Env(GDAL_TIFF_INTERNAL_MASK=True), rasterio.open(
-        path, "w", driver="GTiff", height=height, width=width,
-        count=1, dtype=values.dtype, crs=crs, transform=grid,
-        nodata=nodata, compress="deflate", tiled=True, blockxsize=256, blockysize=256,
-    ) as ds:
-        ds.write(values, 1)
-        ds.write_mask(valid.astype(np.uint8) * 255)

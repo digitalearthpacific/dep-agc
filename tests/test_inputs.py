@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 from affine import Affine
 from dep_tools.grids import PACIFIC_GRID_10
 from dep_tools.loaders import OdcLoader
-from dep_tools.searchers import PystacSearcher
 import numpy as np
 from odc.geo.geobox import GeoBox
 import pystac
@@ -21,7 +20,7 @@ from shapely.geometry import mapping
 from src.task import run_tile, tile_sources
 from src.utils import (
     GEOMAD_NODATA, MODEL_BUFFER, SUPPORTED_VERSION, WORLDCOVER, WORLDCOVER_INDEX, align_worldcover,
-    check_geomad_sources, geomad_item_ids, prepare, prepare_worldcover, read_worldcover,
+    check_geomad_sources, prepare, prepare_worldcover,
 )
 
 
@@ -122,12 +121,11 @@ class InputTests(unittest.TestCase):
 
                     with patch('src.utils.requests.get') as get, patch('rasterio.open', side_effect=open_raster):
                         get.return_value.__enter__.return_value = response
-                        output = prepare_worldcover(root/f'{listed}.tif', tile)
+                        classes, available = prepare_worldcover(tile)
                         get.assert_called_once_with(WORLDCOVER_INDEX, timeout=(10, 60))
                         response.raise_for_status.assert_called_once()
 
                     self.assertEqual(opened, expected_urls)
-                    classes, available = read_worldcover(output, tile)
                     if expected_urls:
                         np.testing.assert_array_equal(classes, [[0, 10, 0, 0], [80, 20, 0, 0]])
                         np.testing.assert_array_equal(available, [[True, True, False, False]] * 2)
@@ -137,15 +135,13 @@ class InputTests(unittest.TestCase):
     def test_worldcover_reports_an_unreadable_indexed_tiff(self):
         tile = GeoBox((2, 2), Affine(.001, 0, -172, 0, -.001, -13), 'EPSG:4326')
         response = Mock(json=Mock(return_value={'features': [{'properties': {'ll_tile': 'S15W174'}}]}))
-        with TemporaryDirectory() as temp, patch('src.utils.requests.get') as get, patch(
+        with patch('src.utils.requests.get') as get, patch(
             'rasterio.open', side_effect=RasterioIOError('remote read failed'),
         ) as open_raster:
             get.return_value.__enter__.return_value = response
-            output = Path(temp)/'cover.tif'
             with self.assertRaisesRegex(ValueError, 'Could not read indexed WorldCover TIFF .*S15W174_Map.tif'):
-                prepare_worldcover(output, tile)
+                prepare_worldcover(tile)
             open_raster.assert_called_once_with(WORLDCOVER.format('S15W174'))
-            self.assertFalse(output.exists())
 
     def geomad_fixture(self, root, *, masked=False):
         tile = samoa_plan()['tile']
@@ -163,6 +159,7 @@ class InputTests(unittest.TestCase):
             ) as dst:
                 dst.write(np.array([[100, 200], [300, nodata]], np.uint16), 1, window=window)
                 if masked and band == 'red':
+                    # An explicit mask marks 100 invalid while preserving a stored value distinct from NoData.
                     dst.write_mask(np.array([[0, 255], [255, 255]], np.uint8), window=window)
 
         real_open = rasterio.open
@@ -220,6 +217,7 @@ class InputTests(unittest.TestCase):
                 for key, value, error in (
                     ('proj:shape', [9600, 9601], 'grid metadata'),
                     ('proj:code', 'EPSG:4326', 'grid metadata'),
+                    ('start_datetime', '2023-01-01T00:00:00Z', 'full 2024 annual interval'),
                     ('end_datetime', '2024-11-30T23:59:59Z', 'full 2024 annual interval'),
                 ):
                     changed = src.clone()
@@ -232,7 +230,7 @@ class InputTests(unittest.TestCase):
                 check_geomad_sources([changed], YEAR)
                 with loader.load([changed], target) as geomad:
                     with self.assertRaisesRegex(ValueError, 'Loaded GeoMAD NoData differs for red'):
-                        prepare(geomad, target, Path(temp)/'prepared')
+                        prepare(geomad, target)
 
     def test_odc_loads_explicitly_masked_pixels_and_fills_missing_coverage(self):
         loader = OdcLoader(bands=['red'], groupby='solar_day', resampling='nearest', dtype='uint16', fail_on_error=True)
@@ -246,49 +244,32 @@ class InputTests(unittest.TestCase):
                   self.assertRaisesRegex(ValueError, r'Unexpected GeoMAD TIFF grid, encoding or mask for .*/red')):
                 check_geomad_sources([src], YEAR)
 
-    def test_geomad_search_requests_the_buffered_roster(self):
+    def test_geomad_selection_keeps_only_positive_overlap_in_search_order(self):
         plan = samoa_plan()
-        target = plan['buffered_tile']
-        ids = geomad_item_ids(target, YEAR)
-        catalogue = Mock(id='dep')
         items = [stac_item(source_item(col, row)) for col in range(76, 73, -1) for row in range(26, 23, -1)]
-        catalogue.search.return_value.item_collection.return_value = pystac.ItemCollection(items)
-        searcher = PystacSearcher(client=catalogue, collections=['dep_s2_geomad'], ids=ids)
-        selected = tile_sources(plan, YEAR, searcher.search(target), ids)
-
-        catalogue.search.assert_called_once()
-        query = catalogue.search.call_args.kwargs
-        self.assertEqual(query['collections'], ['dep_s2_geomad'])
-        self.assertEqual(query['ids'], [
-            'dep_s2_geomad_074_024_2024', 'dep_s2_geomad_074_025_2024', 'dep_s2_geomad_074_026_2024',
-            'dep_s2_geomad_075_024_2024', 'dep_s2_geomad_075_025_2024', 'dep_s2_geomad_075_026_2024',
-            'dep_s2_geomad_076_024_2024', 'dep_s2_geomad_076_025_2024', 'dep_s2_geomad_076_026_2024',
-        ])
-        np.testing.assert_allclose(query['bbox'], [-172.29088, -14.33618, -171.38825, -13.45441], atol=1e-5)
+        touching = source_item(77, 25)
+        touching['properties']['proj:bbox'][0] = plan['buffered_tile'].boundingbox.bbox[2]
+        selected = tile_sources(plan, YEAR, [stac_item(touching), *items])
         self.assertEqual([item.id for item in selected], [item.id for item in items])
 
     def test_invalid_geomad_rosters_fail_before_loading(self):
         plan = samoa_plan()
-        ids = geomad_item_ids(plan['buffered_tile'], YEAR)
         centre = source_item(75, 25)
         missing_neighbour = [source_item(col, row) for col in range(74, 77) for row in range(24, 27)
                              if (col, row) != (74, 26)]
         for label, items, reason in (
             ('empty', [], 'No annual GeoMAD Items'),
             ('missing neighbour', missing_neighbour, 'full buffered tile'),
-            ('wrong year', [source_item(75, 25, year=2023)], 'unrequested'),
             ('wrong collection', [centre | {'collection': 'other'}], 'Unexpected GeoMAD collection'),
-            ('unrequested', [source_item(77, 25)], 'unrequested'),
-            ('malformed ID', [centre | {'id': 'dep_s2_geomad_75_025_2024'}], 'unrequested'),
             ('duplicate', [centre, centre], 'Duplicate annual GeoMAD Item'),
         ):
-            with self.subTest(label=label), TemporaryDirectory() as temp:
-                work = Path(temp)/'work'
+            with self.subTest(label=label):
                 searcher = Mock(search=Mock(return_value=[stac_item(item) for item in items]))
-                loader = Mock()
+                loader, worldcover = Mock(), Mock()
                 with self.assertRaisesRegex(ValueError, reason):
-                    run_tile(plan, YEAR, work, searcher=searcher, source_ids=ids, loader=loader,
-                             worldcover=Mock(), processor=Mock(), writer=Mock(),
-                             stac_creator=Mock(), stac_writer=Mock(), model_sha256='a' * 64)
+                    run_tile(plan, YEAR, searcher=searcher, loader=loader,
+                             worldcover=worldcover, processor=Mock(), writer=Mock(),
+                             stac_creator=Mock(), stac_writer=Mock(), model_uri='https://example.org/model.zip',
+                             model_sha256='a' * 64)
+                worldcover.assert_not_called()
                 loader.load.assert_not_called()
-                self.assertFalse(work.exists())

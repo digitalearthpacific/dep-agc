@@ -22,6 +22,7 @@ RUN python -m pip install --no-cache-dir pip==24.0 \
  && python -m pip check
 
 WORKDIR /opt/processor
+RUN install -d -o 65534 -g 65534 models
 COPY src/*.py ./src/
 
 # dep-tools records the build identity in output STAC Items.

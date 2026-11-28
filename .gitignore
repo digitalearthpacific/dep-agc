@@ -3,6 +3,7 @@ __pycache__/
 dependencies/
 runs/
 products/
+/models/
 *.pth
 *.tar
 *.zip
