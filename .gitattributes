@@ -1,0 +1,4 @@
+# Preserve the recorded source bytes across Linux/Windows checkouts.
+* text=auto eol=lf
+src/*.py -text whitespace=cr-at-eol
+requirements.txt -text

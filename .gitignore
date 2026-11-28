@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+dependencies/
+runs/
+products/
+/models/
+*.pth
+*.tar
+*.zip
+.env

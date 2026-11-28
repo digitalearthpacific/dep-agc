@@ -1,0 +1,6 @@
+# Allow only build files, runtime configuration and Python source into the image build.
+**
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!src/*.py
